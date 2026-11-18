@@ -43,10 +43,12 @@ def render_card(card):
     out += field("怕", s.get("fears"))
     out += field("知道", s.get("knows"))
     out += field("不能说", s.get("secrets") or "无")
+    out += field("眼下", s.get("now"))
 
     out += ["", f"【对方】{l['name']}"]
     out += field("是谁", l.get("summary"))
     out += field(f"{s['name']}怎么看他", l.get("view"))
+    out += field("眼下", l.get("now"))
     out += field("在场", [f"{o['name']}（{o['view']}）" for o in l.get("others", []) if o.get("name")])
 
     out += ["", "【场景】"]

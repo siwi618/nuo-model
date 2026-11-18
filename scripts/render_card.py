@@ -18,10 +18,17 @@ def line(name, emotion, text):
     return f"{name}{tag}: {text}"
 
 
+def as_text(v):
+    """模型偶尔把一条写成 {键: 值}，拼成一句话。"""
+    if isinstance(v, dict):
+        return "，".join(str(x) for x in v.values() if x)
+    return str(v)
+
+
 def field(label, value):
     """有内容才输出一行；列表用「；」连起来。"""
     if isinstance(value, list):
-        value = "；".join(v for v in value if v)
+        value = "；".join(as_text(v) for v in value if v)
     return [f"{label}：{value}"] if value else []
 
 

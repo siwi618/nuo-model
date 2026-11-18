@@ -5,7 +5,7 @@
 - 进训练样本的文字（世界、档案、场景、前文、目的、台词）全部由 DeepSeek 写。
 
 用法：python3 scripts/pilot.py [步骤]   步骤：worlds / people / plan / cards / lines / check / all（默认）
-环境变量：NUO_RUN=pilot-002 换结果文件夹；NUO_N=10 只跑前 10 条。
+环境变量：NUO_RUN=pilot-002 换结果文件夹；NUO_N=10 只跑前 10 条；NUO_MODEL=deepseek-flash 换模型。
 结果放在 data/pilot-001/（不进 git），每步做完就存，重跑会跳过已做完的。
 """
 
@@ -25,7 +25,7 @@ OUT = Path(__file__).resolve().parent.parent / "data" / os.environ.get("NUO_RUN"
 LIMIT = int(os.environ.get("NUO_N", "40"))     # 只跑计划里的前 N 条（验证改动时用）
 MAX_CARD = 1500                                  # 戏卡字数上限（docs/戏卡格式.md）
 TRIES = 3                                        # 戏卡 / 台词不合格时最多写几次
-MODEL = "deepseek-v4-pro"
+MODEL = os.environ.get("NUO_MODEL", "deepseek-flash")   # 2026-11-18 定：大批量用 Flash
 
 # ---------- 设计：一句话设定（Claude 给，Ken 同意，2026-11-18） ----------
 WORLDS = {

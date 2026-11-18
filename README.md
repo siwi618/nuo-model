@@ -10,4 +10,5 @@
 - 格式说明：[docs/戏卡格式.md](docs/戏卡格式.md)
 - 情况覆盖表：[docs/情况覆盖表.md](docs/情况覆盖表.md)
 - 示例（自编练习角色，不进训练）：[examples/](examples/)
+- 考卷（永不训练）：[exam/](exam/)
 - 卡片渲染脚本：`python3 scripts/render_card.py examples/梅姨.jsonl`

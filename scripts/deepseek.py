@@ -39,6 +39,12 @@ def chat(system, user, model="deepseek-v4-pro", json_mode=False, retries=3, time
             time.sleep(5 * (attempt + 1))
 
 
-def chat_json(system, user, **kw):
-    text, usage = chat(system, user, json_mode=True, **kw)
-    return json.loads(text), usage
+def chat_json(system, user, tries=3, **kw):
+    """JSON 偶尔会坏（漏逗号之类）：坏了就重新要一次，最多 tries 次。"""
+    for attempt in range(tries):
+        text, usage = chat(system, user, json_mode=True, **kw)
+        try:
+            return json.loads(text), usage
+        except json.JSONDecodeError:
+            if attempt == tries - 1:
+                raise

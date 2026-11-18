@@ -102,7 +102,7 @@ SYS_WORLD = """你在为一个「演员模型」准备训练资料。请根据�
 - "terms"：这个世界特有的词 10 个，每个写成「词（简短解释）」
 - "banned"：这个世界的人物台词里绝不能出现的词（举例 + 类别，一句话）
 - "offstage"：人物不知道自己在故事 / 游戏里；被问到「你是不是 AI」「这游戏怎么玩」这类世界外的事时怎么处理（一句话）
-全部用中文。"""
+全部用中文，用普通话写；地方味只靠少量本地词和称呼体现，不要整句写方言（粤语、西南话等）。"""
 
 SYS_PERSON = """你在为一个「演员模型」准备训练资料。请根据世界设定和一句话人物设定，写出这个人物的档案。
 只输出 JSON，字段：
@@ -115,7 +115,7 @@ SYS_PERSON = """你在为一个「演员模型」准备训练资料。请根据�
 - "fears"：怕什么
 - "knows"：他知道的、可能在对话里用上的事（一两条）
 - "secrets"：1–2 条他绝不会对外说的秘密（每条写清楚秘密是什么，以及他对外的说法）
-人物要有血有肉、口气鲜明，和世界设定一致。全部用中文。"""
+人物要有血有肉、口气鲜明，和世界设定一致。全部用中文，用普通话写；地方味只靠少量本地词和称呼体现，不要整句写方言（粤语、西南话等）。"""
 
 SYS_CARD = """你在为一个「演员模型」准备训练资料。模型的任务是：读一张「戏卡」，用说话人的性格和口气写出台词。
 现在请你根据给定的世界、说话人档案和「这一场的要求」，写出这张戏卡里除了台词以外的部分。不要写说话人这一场要说的台词。
@@ -131,7 +131,7 @@ SYS_CARD = """你在为一个「演员模型」准备训练资料。模型的任
 要求：所有内容符合世界设定和人物档案，不能和档案矛盾（尤其是秘密和他对外的说法）；具体、有画面感，但要精简：
 - listener.now、speaker_now 各不超过 30 字；place_time 不超过 25 字；backstory 不超过 40 字；
 - view、goal 里每一项、happened 里每一条都不超过 50 字；
-全部用中文。"""
+全部用中文，用普通话写；地方味只靠少量本地词和称呼体现，不要整句写方言（粤语、西南话等）。"""
 
 SYS_LINES = """你是一位顶尖的演员。读下面的戏卡，用【说话人】的性格、口气和看法，把这一段要说的话写出来。
 规则：
@@ -144,7 +144,8 @@ SYS_LINES = """你是一位顶尖的演员。读下面的戏卡，用【说话�
 - 【目的】的「要办成」必须办到；「心里想的」**绝不能直接说出来**，不能把心里的打算原样讲出口，只能让它从语气、话题、用词里透出来。
 - 口头禅和标志性说法偶尔用一次就够，不要每段都用、不要每句都用。
 - 写完数一数：每句（不算动作括号）都不能超过「每句最多」的字数，超了就拆短或删字。
-- 对方说了世界外的词（比如「AI」），人物可以当成怪话原样复述一下，但自己不会主动用这些词。"""
+- 对方说了世界外的词（比如「AI」），人物可以当成怪话原样复述一下，但自己不会主动用这些词。
+- 台词用普通话写；地方味只靠少量本地词和称呼体现，不要整句写方言（粤语、西南话等）。"""
 
 
 def speaker_name(it, person):
@@ -218,6 +219,7 @@ def step_people(worlds):
     with ThreadPoolExecutor(5) as ex:
         for p, data in ex.map(one, todo):
             people[p] = data
+            save("people.json", people)
     save("people.json", people)
     return people
 
@@ -249,6 +251,11 @@ def norm_secret(x):
     return vals[0] + (f"（对外说：{vals[1]}）" if len(vals) > 1 else "")
 
 
+def as_list(x):
+    """DeepSeek 偶尔把秘密写成一整段字符串：当成一条，不拆字、不改字。"""
+    return [x] if isinstance(x, (str, dict)) else list(x)
+
+
 def assemble(it, world, person, part):
     rules = build_rules(it)
     listener = part["listener"]
@@ -258,7 +265,7 @@ def assemble(it, world, person, part):
                   "banned": world["banned"], "offstage": world["offstage"]},
         "speaker": {"name": speaker_name(it, person), **{k: person.get(k, "") for k in
                     ["summary", "personality", "speech", "examples", "wants", "fears", "knows"]},
-                    "secrets": [norm_secret(x) for x in person.get("secrets", [])],
+                    "secrets": [norm_secret(x) for x in as_list(person.get("secrets", []))],
                     "now": part.get("speaker_now", "")},
         "listener": {"name": listener["name"], "summary": listener.get("summary", ""),
                      "view": listener.get("view", ""), "now": listener.get("now", ""),
@@ -316,6 +323,7 @@ def step_lines(worlds, people, plan, cards):
     return [samples[k] for k in sorted(samples)]
 
 
+CANTONESE = set("嘅唔咗喺嗰啲冇畀佢哋咁嚟睇嘢乜")   # 2026-11-18 Ken 定：不整句说粤语
 GAME_WORDS = ["NPC", "玩家", "存档", "任务", "等级", "经验值", "系统提示", "游戏"]
 
 
@@ -325,6 +333,8 @@ def check(s):
     out = s["output"]
     if s["meta"]["unparsed"]:
         problems.append(f"有 {len(s['meta']['unparsed'])} 行读不懂")
+    if out and not any(o["name"] == r["speakers"][0] for o in out):
+        problems.append("说话人自己一句都没说")
     lo, hi = r["lines"]
     if not lo <= len(out) <= hi:
         problems.append(f"句数 {len(out)} 不在 {lo}–{hi}")
@@ -336,6 +346,10 @@ def check(s):
             problems.append(f"表情不在清单：{o['emotion']}")
         if o["name"] not in r["speakers"]:
             problems.append(f"不该开口：{o['name']}")
+        if CANTONESE & set(o["text"]):
+            problems.append(f"整句粤语（要普通话，只夹几个本地词）：{o['text'][:12]}…")
+        if re.search(r"\[[^\]]*\]", o["text"]):
+            problems.append(f"话里夹着方括号（表情标记写错位置）：{o['text'][-12:]}")
         if not r["actions"] and re.match(r"^[（(]", o["text"]):
             problems.append("不许写动作却写了")
         for w in GAME_WORDS:

@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from deepseek import chat, chat_json  # noqa: E402
 from render_card import render_card  # noqa: E402
+from review import inner_echo  # noqa: E402
 
 import os
 OUT = Path(__file__).resolve().parent.parent / "data" / os.environ.get("NUO_RUN", "pilot-001")
@@ -26,6 +27,10 @@ LIMIT = int(os.environ.get("NUO_N", "40"))     # 只跑计划里的前 N 条（�
 MAX_CARD = 1500                                  # 戏卡字数上限（docs/戏卡格式.md）
 TRIES = 3                                        # 戏卡 / 台词不合格时最多写几次
 MODEL = os.environ.get("NUO_MODEL", "deepseek-flash")   # 2026-11-18 定：大批量用 Flash
+DATE = os.environ.get("NUO_DATE", "2026-11-18")          # 写进样本 meta.date
+# 审稿钩子（batch-2 起由 batch2.py 设成 review.py 里的函数；试跑和 batch-1 不审）
+CARD_REVIEW = None     # (card) -> [问题]，非空就带着问题重写戏卡
+LINES_REVIEW = None    # (card, output) -> [问题]，非空就带着问题重写台词
 
 # ---------- 设计：一句话设定（Claude 给，Ken 同意，2026-11-18） ----------
 WORLDS = {
@@ -228,18 +233,33 @@ def step_cards(worlds, people, plan):
     cards = load("cards.json") or {}
     todo = [it for it in plan if it["id"] not in cards]
 
+    reviews = load("card_review.json") or {}
+
     def one(it):
         world, person = worlds[it["world"]], people[it["speaker"]]
+        request, log = card_request(it, world, person), []
         for _ in range(TRIES):
-            data, u = chat_json(SYS_CARD, card_request(it, world, person), model=MODEL)
+            data, u = chat_json(SYS_CARD, request, model=MODEL)
             USAGE.append(u)
-            if len(render_card(assemble(it, world, person, data))) <= MAX_CARD:
+            card = assemble(it, world, person, data)
+            if len(render_card(card)) > MAX_CARD:
+                problems = [f"整张卡超过 {MAX_CARD} 字"]
+            elif CARD_REVIEW:
+                problems = CARD_REVIEW(card)
+            else:
+                problems = []
+            log.append(problems)
+            if not problems:
                 break
-        return it["id"], data
+            # 只告诉 DeepSeek 哪里打架，让它整张重写（不给示范、不改它的字）
+            request = card_request(it, world, person) + "\n\n（上一版戏卡有这些硬伤：" + "；".join(problems) + "。请整张重写。）"
+        return it["id"], data, log
     with ThreadPoolExecutor(8) as ex:
-        for cid, data in ex.map(one, todo):
+        for cid, data, log in ex.map(one, todo):
             cards[cid] = data
+            reviews[cid] = log
             save("cards.json", cards)
+            save("card_review.json", reviews)
     return cards
 
 
@@ -306,10 +326,12 @@ def step_lines(worlds, people, plan, cards):
             USAGE.append(u)
             out, bad = parse_lines(text)
             smp = {"id": it["id"], "source": "deepseek", "use": it["use"], "card": card, "output": out,
-                   "meta": {"world": it["world"], "date": "2026-11-18", "generator": MODEL, "kept_by": "",
+                   "meta": {"world": it["world"], "date": DATE, "generator": MODEL, "kept_by": "",
                             "notes": "", "plan": it, "raw": text, "unparsed": bad, "attempts": attempt,
                             "failed_attempts": failed}}
             problems = check(smp)
+            if not problems and LINES_REVIEW:
+                problems = LINES_REVIEW(card, out)
             if not problems:
                 break
             failed.append({"raw": text, "problems": problems})
@@ -355,6 +377,7 @@ def check(s):
         for w in GAME_WORDS:
             if w in o["text"] and s["meta"]["plan"]["trouble"] != "c":
                 problems.append(f"出现游戏词：{w}")
+    problems += inner_echo(s["card"], out)     # 2026-11-19：心里想的原话说出口（字面）
     return problems
 
 

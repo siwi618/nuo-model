@@ -11,6 +11,7 @@ batch-1 挑稿时丢得最多的是：心里想的被说出口（53 / 147）、�
 （batch-1 上校准：抓到被丢的 14 / 53，误伤留下的 12 / 453）。
 """
 
+import os
 import re
 
 from deepseek import chat_json
@@ -58,8 +59,13 @@ SYS_LINES_REVIEW = """你是一个严格但公道的审稿员。下面是一张�
 拿不准的不要报。只输出 JSON：{"problems": [{"type": "上面四类之一", "line": 第几句（从 1 数，整体问题写 0）, "why": "一句话，引用台词原话"}]}，没有问题就输出 {"problems": []}。"""
 
 
+# 审稿要开思考：2026-11-19 用 batch-1 校准，关掉思考后台词审稿好样本误报 38/100（开着 7/100），
+# 戏卡审稿误报 87/100（开着 22/100）。省下的钱不够重写的钱。NUO_REVIEW_THINKING=0 可关。
+REVIEW_THINKING = os.environ.get("NUO_REVIEW_THINKING", "1") == "1"
+
+
 def _ask(system, user, model, usage):
-    data, u = chat_json(system, user, model=model)
+    data, u = chat_json(system, user, model=model, thinking=REVIEW_THINKING)
     if usage is not None:
         usage.append(u)
     probs = data.get("problems", []) if isinstance(data, dict) else []

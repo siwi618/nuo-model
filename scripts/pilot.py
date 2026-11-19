@@ -241,7 +241,14 @@ def step_cards(worlds, people, plan):
         for _ in range(TRIES):
             data, u = chat_json(SYS_CARD, request, model=MODEL)
             USAGE.append(u)
-            card = assemble(it, world, person, data)
+            try:
+                card = assemble(it, world, person, data)
+            except (KeyError, TypeError, AttributeError) as e:     # DeepSeek 偶尔漏字段（11-19 batch-2 漏过 goal）
+                problems = [f"JSON 缺字段或格式不对：{e}"]
+                log.append(problems)
+                request = card_request(it, world, person) + "\n\n（上一版缺字段：" + problems[0] + "。请按字段说明完整重写。）"
+                data = None
+                continue
             if len(render_card(card)) > MAX_CARD:
                 problems = [f"整张卡超过 {MAX_CARD} 字"]
             elif CARD_REVIEW:
@@ -256,8 +263,9 @@ def step_cards(worlds, people, plan):
         return it["id"], data, log
     with ThreadPoolExecutor(8) as ex:
         for cid, data, log in ex.map(one, todo):
-            cards[cid] = data
             reviews[cid] = log
+            if data is not None:            # 三次都缺字段的不存，下次重跑再做
+                cards[cid] = data
             save("cards.json", cards)
             save("card_review.json", reviews)
     return cards
@@ -316,7 +324,7 @@ def parse_lines(text):
 
 def step_lines(worlds, people, plan, cards):
     samples = {s["id"]: s for s in (load("samples.json") or [])}
-    todo = [it for it in plan if it["id"] not in samples]
+    todo = [it for it in plan if it["id"] not in samples and it["id"] in cards]
 
     def one(it):
         card = assemble(it, worlds[it["world"]], people[it["speaker"]], cards[it["id"]])

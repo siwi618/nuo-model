@@ -24,6 +24,17 @@ from render_card import render_card  # noqa: E402
 
 LINE = re.compile(r"^(.+?)(?:\[(.+?)\])?[:：]\s*(.*)$")
 ACT = re.compile(r"[（(][^）)]*[）)]")
+# 现代 / 科幻类世界里冒出文言字 = 「老头腔」串台（2026-11-19 Ken：别把模型调成满嘴之乎者也的清朝老头）
+MODERN_WORLDS = {"现代", "科幻", "太空殖民", "刑侦", "校园", "废土"}
+ARCHAIC = set("之乎者矣焉哉兮欤汝吾尔曰")
+MODERN_OK = ["之后", "之前", "之间", "之一", "之外", "之内", "之中", "之下", "之上", "总之", "随之", "之所以",
+             "偶尔", "莞尔", "或者", "记者", "作者", "读者", "患者", "老者", "学者", "使者", "前者", "后者", "再者"]
+
+
+def archaic_chars(text):
+    for w in MODERN_OK:
+        text = text.replace(w, "")
+    return [c for c in text if c in ARCHAIC]
 
 
 def split_list(s):
@@ -53,6 +64,7 @@ def load_rules(exam_path):
             "emotions": split_list(get("表情")),
             "speakers": split_list(get("谁能开口")),
             "use": get("用法"),
+            "modern": (d.get("meta") or {}).get("world", "") in MODERN_WORLDS,
         }
     return rules
 
@@ -90,6 +102,8 @@ def check(lines, r):
             problems.append("表情写进括号")
         if len(ACT.sub("", text)) > r["max_chars"]:
             problems.append("超字数")
+        if r.get("modern") and archaic_chars(text):
+            problems.append(f"文言字:{''.join(archaic_chars(text))}")
     return problems
 
 

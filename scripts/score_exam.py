@@ -1,7 +1,8 @@
 """按考卷每张卡的【要求】给模型写的台词打分（只查格式，不查口气、目的、守秘——那些要人看）。
 
 查的项目：句数、每句字数（不算动作括号）、「动作：不写」时写了括号、表情不在清单里、
-表情写进括号（「（傲慢）」而不是「[傲慢]」）、不该开口的人开口、一行不是「名字[表情]: 话」的格式。
+表情写进括号（「（傲慢）」而不是「[傲慢]」）、不该开口的人开口、一行不是「名字[表情]: 话」的格式、
+两句里有同一个 4 字以上片段（重复）、现代 / 科幻类世界里冒出文言字。
 
 输入是 try_exam.py 的输出文件（「=== 考卷id（名字）」后面跟台词行）。
 
@@ -29,6 +30,21 @@ MODERN_WORLDS = {"现代", "科幻", "太空殖民", "刑侦", "校园", "废土
 ARCHAIC = set("之乎者矣焉哉兮欤汝吾尔曰")
 MODERN_OK = ["之后", "之前", "之间", "之一", "之外", "之内", "之中", "之下", "之上", "总之", "随之", "之所以",
              "偶尔", "莞尔", "或者", "记者", "作者", "读者", "患者", "老者", "学者", "使者", "前者", "后者", "再者"]
+
+
+PUNCT = re.compile(r"[，。！？、；：,.!?;:“”\"'‘’（）()…—\s\[\]]")
+
+
+def repeated(texts, n=4):
+    """同一个 4 字片段出现在两句里（2026-11-19 Ken 指出「您放一百个心」连说两遍）。返回重复片段。"""
+    seen, hits = {}, set()
+    for k, t in enumerate(texts):
+        t = PUNCT.sub("", ACT.sub("", t))
+        for g in {t[i:i + n] for i in range(len(t) - n + 1)}:
+            if g in seen and seen[g] != k:
+                hits.add(g)
+            seen.setdefault(g, k)
+    return sorted(hits)
 
 
 def archaic_chars(text):
@@ -85,6 +101,10 @@ def check(lines, r):
     problems = []
     if not r["lo"] <= len(lines) <= r["hi"]:
         problems.append(f"句数{len(lines)}")
+    texts = [m.group(3) for m in map(LINE.match, lines) if m]
+    rep = repeated(texts)
+    if rep:
+        problems.append(f"重复:{rep[0]}")
     for s in lines:
         m = LINE.match(s)
         if not m:

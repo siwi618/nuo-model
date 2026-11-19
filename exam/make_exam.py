@@ -65,9 +65,17 @@ def rules(use, lines, max_chars, emotions, speakers, actions=False):
 EXAM = []
 
 
-def add(eid, group, world, test, card):
+# 考卷 v2（2026-11-19）：每张卡分难度档（简单 / 中等 / 困难，分数按 40 / 40 / 20 加权）；
+# hidden=True 的进隐藏卷（平时不看、只在最后拍板用一次）。v1 的 24 张分档见文件末尾 V1_TIER。
+TIERS = ("简单", "中等", "困难")
+
+
+def add(eid, group, world, test, card, tier=None, hidden=False, date="2026-11-18"):
+    assert eid not in {e["id"] for e in EXAM}, eid
+    assert tier is None or tier in TIERS, tier
     EXAM.append({"id": eid, "source": "claude", "use": card["rules"]["use"], "card": card, "output": [],
-                 "meta": {"exam": True, "group": group, "world": world, "test": test, "date": "2026-11-18"}})
+                 "meta": {"exam": True, "group": group, "world": world, "test": test, "date": date,
+                          "tier": tier, "hidden": hidden}})
 
 
 # ======================= 新世界（我写） =======================
@@ -428,14 +436,33 @@ add("exam-W08", "W", "推理", "对方诈他 + 守秘",
               "dont_leak": ["那晚替小姐烧了信"]},
      "rules": rules("reply", (1, 2), 60, ["平常", "惊讶", "难过"], ["哈德森"])})
 
+# ======================= v1 分档（2026-11-19 Claude 定） =======================
+# 简单 = 一件事、一个要求；中等 = 两三样要兼顾（守秘 / 对方状态 / 动作 / 出戏）；
+# 困难 = 多个约束互相拉扯、被直接施压、要精确照抄、长段落不能自相矛盾。
+V1_TIER = {"S03": "简单", "N02": "简单", "N05": "简单", "W03": "简单",
+           "S04": "困难", "S05": "困难", "S06": "困难", "W02": "困难", "W07": "困难", "W08": "困难"}
+for e in EXAM:
+    e["meta"]["tier"] = V1_TIER.get(e["id"][5:], "中等")
+
+# ======================= v2 新卡（2026-11-19） =======================
+for f in ("v2_easy.py", "v2_mid.py", "v2_hard.py"):
+    if (HERE / f).exists():
+        exec((HERE / f).read_text(encoding="utf-8"), globals())
+
 if __name__ == "__main__":
     import sys
     sys.path.insert(0, str(HERE.parent / "scripts"))
     from render_card import render_card
-    out = HERE / "考卷.jsonl"
-    out.write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in EXAM), encoding="utf-8")
-    view = ["# Nuo 考卷 v1（24 张，永不训练）\n# S = 见过的角色换新场景；N = 新角色；W = 新世界\n"]
-    for e in EXAM:
-        view.append(f"\n\n################ {e['id']}　{e['meta']['world']}　考：{e['meta']['test']}\n{render_card(e['card'])}\n")
-    (HERE / "考卷-看.txt").write_text("".join(view), encoding="utf-8")
-    print(f"写了 {len(EXAM)} 张 → {out}")
+    from collections import Counter
+    for hidden, stem in ((False, "考卷"), (True, "隐藏卷")):
+        cards = [e for e in EXAM if e["meta"]["hidden"] == hidden]
+        out = HERE / f"{stem}.jsonl"
+        out.write_text("".join(json.dumps(x, ensure_ascii=False) + "\n" for x in cards), encoding="utf-8")
+        n = Counter(e["meta"]["tier"] for e in cards)
+        print(f"写了 {len(cards)} 张 → {out}　" + "　".join(f"{t} {n[t]}" for t in TIERS))
+        if hidden:
+            continue   # 隐藏卷不出人看的版本：平时不看
+        view = [f"# Nuo 考卷 v2（{len(cards)} 张，永不训练）\n# S = 见过的角色换新场景；N = 新角色；W = 新世界\n"]
+        for e in cards:
+            view.append(f"\n\n################ {e['id']}　{e['meta']['tier']}　{e['meta']['world']}　考：{e['meta']['test']}\n{render_card(e['card'])}\n")
+        (HERE / "考卷-看.txt").write_text("".join(view), encoding="utf-8")

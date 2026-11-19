@@ -97,6 +97,30 @@ def parse_output(path):
     return out
 
 
+# 游戏代码能直接修掉的问题（2026-11-19 定：括号动作等交给代码把关，不指望小模型每次守规矩）
+FIXABLE = {"写了动作", "表情外", "表情写进括号"}
+
+
+def fix_lines(lines, r):
+    """模拟游戏代码的把关：「动作：不写」就删括号；表情不在清单里 / 写进括号就去掉（游戏当「平常」）。"""
+    out = []
+    for s in lines:
+        m = LINE.match(s)
+        if not m:
+            out.append(s)
+            continue
+        name, emo, text = m.groups()
+        if r["no_action"]:
+            text = ACT.sub("", text).strip()
+        else:
+            text = re.sub(r"[（(]([^）)]*)[）)]", lambda a: "" if a.group(1).strip() in r["emotions"] else a.group(0), text).strip()
+        if emo and emo not in r["emotions"]:
+            emo = None
+        if text:
+            out.append(f"{name}[{emo}]: {text}" if emo else f"{name}: {text}")
+    return out
+
+
 def check(lines, r):
     problems = []
     if not r["lo"] <= len(lines) <= r["hi"]:

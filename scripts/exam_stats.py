@@ -22,7 +22,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from score_exam import check, load_rules, parse_output  # noqa: E402
+from score_exam import check, fix_lines, load_rules, parse_output  # noqa: E402
 
 TIERS = ("简单", "中等", "困难")
 
@@ -68,7 +68,28 @@ def main():
     ap.add_argument("runs", nargs="+", help="标签=文件1,文件2,... 或 标签=输出前缀")
     ap.add_argument("--exam", default=str(HERE.parent / "exam" / "考卷.jsonl"))
     ap.add_argument("--weights", default="简单=0.4,中等=0.4,困难=0.2")
+    ap.add_argument("--mode", default="raw,fixed", help="raw = 原样查格式；fixed = 先按游戏代码把关修一遍再查（删括号动作、清单外表情）；"
+                    "content = 只看内容盲评（要 --judge）；all = 修后格式 + 内容都过。逗号分隔可报多种")
+    ap.add_argument("--judge", help="judge_exam.py 的结果文件（jsonl）")
     a = ap.parse_args()
+    for mode in a.mode.split(","):
+        report(a, mode.strip())
+
+
+MODE_NAME = {"raw": "格式（原样）", "fixed": "格式（代码把关后）", "content": "内容（DeepSeek 盲评）", "all": "综合（把关后格式 + 内容）"}
+
+
+def load_judge(path):
+    out = {}
+    if path:
+        for t in Path(path).read_text(encoding="utf-8").splitlines():
+            if t.strip():
+                d = json.loads(t)
+                out[(d["file"], d["id"])] = d
+    return out
+
+
+def report(a, mode):
 
     weights = {k: float(v) for k, v in (x.split("=") for x in a.weights.split(","))}
     rules = load_rules(a.exam)
@@ -78,18 +99,35 @@ def main():
             d = json.loads(t)
             tier_of[d["id"]] = (d.get("meta") or {}).get("tier") or "中等"
 
+    judge = load_judge(a.judge)
+    if mode in ("content", "all") and not judge:
+        sys.exit("--mode content / all 要给 --judge")
+
+    def verdict(path, i, lines):
+        fmt = check(fix_lines(lines, rules[i]) if mode != "raw" else lines, rules[i])
+        if mode in ("raw", "fixed"):
+            return not fmt, fmt
+        j = judge.get((Path(path).name, i))
+        if j is None:
+            return None
+        con = j["problems"]
+        if mode == "content":
+            return j["pass"], con
+        return (not fmt) and j["pass"], fmt + con
+
     versions = {}
     for item in a.runs:
         label, _, spec = item.partition("=")
         per_seed = {}
         for p in expand(spec):
             res = parse_output(p)
-            per_seed[seed_of(p)] = {i: (not check(res[i], rules[i]), check(res[i], rules[i]))
-                                    for i in rules if i in res}
+            got = {i: verdict(p, i, res[i]) for i in rules if i in res}
+            per_seed[seed_of(p)] = {i: v for i, v in got.items() if v is not None}
         versions[label] = per_seed
 
     cards = sorted(set.intersection(*[set(s) for v in versions.values() for s in v.values()]))
     missing = len(rules) - len(cards)
+    print(f"######## {MODE_NAME.get(mode, mode)}")
     print(f"考卷 {len(rules)} 张，共同考过 {len(cards)} 张" + (f"（{missing} 张缺，不算）" if missing else "")
           + "　档：" + "　".join(f"{t} {sum(tier_of[c] == t for c in cards)}" for t in TIERS)
           + f"　权重 {a.weights}\n")
@@ -110,6 +148,13 @@ def main():
         print(f"{label}（{len(per_seed)} 个种子）: 加权 {100 * w:.1f}%  [95% {100 * lo:.0f}–{100 * hi:.0f}]  "
               + "  ".join(tier_txt))
         print(f"    问题 {dict(probs.most_common())}")
+        if mode in ("content", "all"):
+            paths = expand(dict(x.partition("=")[::2] for x in a.runs)[label])
+            sc = [judge[(Path(p).name, c)] for p in paths for c in cards if (Path(p).name, c) in judge]
+            like = [j["像不像"] for j in sc if isinstance(j.get("像不像"), (int, float))]
+            got = Counter(j["办成"] for j in sc)
+            if like:
+                print(f"    像不像 平均 {sum(like) / len(like):.2f}（1–5）；办成 2 / 1 / 0：{got[2]} / {got[1]} / {got[0]}")
 
     labels = list(versions)
     if len(labels) > 1:
@@ -130,6 +175,7 @@ def main():
                 for t in TIERS if any(tier_of[c] == t for c in cards))
             print(f"  {label}: 加权 {100 * diff:+.1f} 个百分点 [95% {100 * lo:+.0f} ~ {100 * hi:+.0f}] → {verdict}；"
                   f"赢 {win} 张 / 输 {lose} 张 / 平 {len(cards) - win - lose} 张；各档 {per_tier}")
+    print()
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@
 
 用法：.venv/bin/python scripts/novel.py [fetch / segment / label / cards / all]
      NUO_N=每本书最多几条（默认 24）。结果在 data/novel-1/（不进 git）。
+     第二批：NUO_RUN=novel-2 NUO_PREFIX=nv2 NUO_EXCLUDE=novel-1 NUO_N=14 …（不重复第一批用过的句子）
 """
 
 import html
@@ -37,6 +38,7 @@ from review import inner_echo, review_card, review_lines  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "data" / os.environ.get("NUO_RUN", "novel-1")
 PER_BOOK = int(os.environ.get("NUO_N", "24"))
+PREFIX = os.environ.get("NUO_PREFIX", "nv")        # 第二批起换前缀（nv2），免得编号撞
 MODEL = pilot.MODEL
 API = "https://zh.wikisource.org/w/api.php"
 TRIES = 3
@@ -44,15 +46,19 @@ EMOTIONS = ["平常", "生气", "害怕", "难过", "惊讶", "傲慢", "冷笑"
 
 BOOKS = {
     "红楼梦": {"author": "曹雪芹 / 高鹗", "translator": "", "world": "清代京城贵族大宅",
-             "pages": ["紅樓夢/第006回", "紅樓夢/第039回", "紅樓夢/第040回", "紅樓夢/第044回", "紅樓夢/第055回", "紅樓夢/第068回"]},
+             # 第 040 回大半是牙牌令（答案多是诗句、牌名），11-19 挑稿后换成第 041 回
+             "pages": ["紅樓夢/第006回", "紅樓夢/第039回", "紅樓夢/第041回", "紅樓夢/第044回", "紅樓夢/第055回", "紅樓夢/第068回"]},
     "儒林外史": {"author": "吴敬梓", "translator": "", "world": "清代江南乡绅、读书人",
-              "pages": ["儒林外史/第03回", "儒林外史/第04回", "儒林外史/第05回", "儒林外史/第06回", "儒林外史/第13回"]},
+              "pages": ["儒林外史/第03回", "儒林外史/第04回", "儒林外史/第05回", "儒林外史/第06回", "儒林外史/第13回",
+                        "儒林外史/第02回", "儒林外史/第07回", "儒林外史/第08回", "儒林外史/第11回"]},
     "官场现形记": {"author": "李宝嘉（李伯元）", "translator": "", "world": "晚清官场",
-               "pages": ["官場現形記/01", "官場現形記/02", "官場現形記/03", "官場現形記/04", "官場現形記/05"]},
+               "pages": ["官場現形記/01", "官場現形記/02", "官場現形記/03", "官場現形記/04", "官場現形記/05",
+                         "官場現形記/06", "官場現形記/07", "官場現形記/17", "官場現形記/18", "官場現形記/24"]},
     "水浒传": {"author": "施耐庵 / 罗贯中", "translator": "", "world": "北宋江湖、市井",
             "pages": ["水滸傳 (120回本)/第003回", "水滸傳 (120回本)/第024回", "水滸傳 (120回本)/第025回", "水滸傳 (120回本)/第038回", "水滸傳 (120回本)/第045回"]},
     "鲁迅小说": {"author": "鲁迅", "translator": "", "world": "民国初年江南乡镇",
-             "pages": ["孔乙己", "阿Ｑ正傳", "故鄉", "風波", "明天", "祝福", "離婚", "肥皂", "高老夫子"]},
+             "pages": ["孔乙己", "阿Ｑ正傳", "故鄉", "風波", "明天", "祝福", "離婚", "肥皂", "高老夫子",
+                       "藥", "端午節", "社戲", "頭髮的故事", "在酒樓上", "孤獨者", "弟兄", "長明燈"]},
     "莎士比亚": {"author": "威廉·莎士比亚", "translator": "朱生豪", "world": "西洋古代宫廷",
              "pages": ["漢姆萊脫/第一幕", "漢姆萊脫/第二幕", "漢姆萊脫/第三幕", "漢姆萊脫/第四幕", "漢姆萊脫/第五幕",
                        "莎士比亞戲劇全集 (朱生豪)/仲夏夜之夢/第一幕", "莎士比亞戲劇全集 (朱生豪)/仲夏夜之夢/第二幕",
@@ -61,7 +67,8 @@ BOOKS = {
 }
 
 ARCHAIC = set("之乎者矣焉哉兮欤汝吾尔曰")
-THOUGHT = re.compile(r"(想道|暗想|自想|心中道|心里道|心下道|寻思|忖道|自忖|心内道|心中想|心里想)[^。」』]{0,4}[：:，,]?$")
+# 内心独白 / 自言自语（11-19 挑稿：「心里不喜道」「心下发急说」「自言自语的说」都漏过）
+THOUGHT = re.compile(r"(想道|暗想|自想|寻思|忖道|自忖|暗道|心[里中下内头][^。！？」』]{0,6}(道|说|想)|自言自语[^。！？」』]{0,4}(道|说)?|想着)[^。」』]{0,4}[：:，,]?$")
 VARIANTS = {"嬾": "懒", "淸": "清", "偸": "偷", "鎗": "枪", "粧": "妆", "湏": "须", "呌": "叫"}
 KEEP_ZHU = ("著名", "著作", "著述", "显著", "著称", "卓著", "土著", "原著", "名著", "巨著", "编著")
 
@@ -145,7 +152,7 @@ def events_novel(text):
             elif ch in CLOSE:
                 depth -= 1
                 if depth == 0:
-                    ev.append({"k": "q", "t": qbuf.strip()})
+                    ev.append({"k": "q", "t": squash(qbuf.strip())})
                 else:
                     qbuf += ch
             else:
@@ -176,13 +183,26 @@ def events_play(text):
     for line in text.splitlines():
         m = PLAY_LINE.match(line)
         if m and not line.startswith(("（", "(", "第")):
-            speech = re.sub(r"（[^）]*）|\([^)]*\)", "", m.group(2)).strip()
-            sung = "唱" in m.group(2) or any(c in m.group(1) for c in "合同众")   # 唱的歌、几个人齐声说的不要
+            speech = squash(re.sub(r"（[^）]*）|\([^)]*\)", "", m.group(2)).strip())
+            sung ="唱" in m.group(2) or any(c in m.group(1) for c in "合同众二两齐")   # 唱的歌、几个人齐声说的不要
             if speech:
                 ev.append({"k": "q", "t": speech, "abbr": m.group(1), "thought": False, "speech": not sung})
         else:
             ev.append({"k": "n", "t": line})
+    # 扫描本丢了括号的舞台说明（「普下」「勒倒地」「向普」「同下」「旁白」）混进台词：整句不要；
+    # 两个单字缩写拼成的（「罗基」）= 两人齐声，不要
+    singles = {e["abbr"] for e in ev if e["k"] == "q" and len(e["abbr"]) == 1}
+    if singles:
+        stage = re.compile("(" + "|".join(map(re.escape, singles)) + r")[^\s，。！？]{0,2}(下|上|倒地|向)|同下|旁白|下场|比赛")
+        for e in ev:
+            if e["k"] == "q" and (stage.search(e["t"]) or (len(e["abbr"]) == 2 and set(e["abbr"]) <= singles)):
+                e["speech"] = False
     return ev
+
+
+def squash(s):
+    """台词里扫描本留下的排版空格（「后 面」）去掉；只动台词内部，不动「缩写　台词」的分隔。"""
+    return re.sub(r"(?<=[一-鿿])[ 　]+(?=[一-鿿])", "", s)
 
 
 def archaic(s):
@@ -192,6 +212,7 @@ def archaic(s):
 def windows(book, page, ev):
     """候选片段：答案 = 1–2 句连续引语（同一人，后面 label 再核），前文 = 之前 1–4 句引语。"""
     out = []
+    allq = [i for i, e in enumerate(ev) if e["k"] == "q"]
     qi = [i for i, e in enumerate(ev) if e["k"] == "q" and not e["thought"] and e.get("speech")]
     for j in range(2, len(qi)):
         for n_t in (1, 2):
@@ -207,6 +228,12 @@ def windows(book, page, ev):
             gap = sum(len(ev[i]["t"]) for i in range(hist[0], tgt[-1]) if ev[i]["k"] == "n")
             if gap > 200:                      # 中间叙述太长：多半已经换了场景
                 continue
+            # 前文必须是连着的一段对话（11-19 挑稿：跳场、隔夜、前文缺行是第一大毛病）：
+            # 中间每段叙述不超过 60 字；中间不能夹着没选进来的引语（报条、唱词、心里话），否则前文会缺行
+            if any(ev[i]["k"] == "n" and len(ev[i]["t"]) > 60 for i in range(hist[0], tgt[-1])):
+                continue
+            if any(hist[0] < i < tgt[-1] and i not in hist and i not in tgt for i in allq):
+                continue
             if any(len(ev[i]["t"]) > 90 for i in hist):
                 continue
             arch = sum(archaic(ev[i]["t"]) for i in tgt + hist)
@@ -219,14 +246,26 @@ def windows(book, page, ev):
     return out
 
 
+def used_before():
+    """之前几批（NUO_EXCLUDE=novel-1,...）用过的句子：答案和前文都不再选，免得重复。"""
+    used = set()
+    for run in filter(None, os.environ.get("NUO_EXCLUDE", "").split(",")):
+        p = ROOT / "data" / run / "samples.json"
+        for s in json.loads(p.read_text(encoding="utf-8")) if p.exists() else []:
+            used |= {o["text"] for o in s["output"]} | {h["text"] for h in s["card"]["history"]}
+    return used
+
+
 def step_segment(raw):
     rnd = random.Random(20261119)
     segs = {}
+    used_texts = used_before()
     for book, b in BOOKS.items():
         cands = []
         for page in b["pages"]:
             ev = (events_play if b.get("play") else events_novel)(raw[page])
-            cands += [(w, ev) for w in windows(book, page, ev)]
+            cands += [(w, ev) for w in windows(book, page, ev)
+                      if not any(ev[i]["t"] in used_texts for i in w["hist"] + w["tgt"])]
         rnd.shuffle(cands)
         chosen, used = [], set()
         for w, ev in cands:                    # 同一处对话只取一个片段，免得前文重叠
@@ -239,7 +278,7 @@ def step_segment(raw):
             if len(chosen) >= PER_BOOK * 2:   # 多留一倍，标说话人后会筛掉一些
                 break
         for k, w in enumerate(chosen):
-            segs[f"nv-{list(BOOKS).index(book) + 1}{k + 1:03d}"] = w
+            segs[f"{PREFIX}-{list(BOOKS).index(book) + 1}{k + 1:03d}"] = w
         print(f"{book}：候选 {len(cands)}，取 {len(chosen)}")
     save("segments.json", segs)
     return segs
@@ -262,8 +301,9 @@ def passage(seg, ev):
 # ---------- 3. 标说话人（不碰原文） ----------
 SYS_LABEL = """下面是一段小说或剧本原文，引语已编号为 [Q1] [Q2] …（剧本行前面的是角色名缩写）。
 请只做标注，不要改写、不要概括原文。只输出 JSON：
-{"speakers": {"Q1": "说话人全名", ...}, "to": {"Q1": "这句是对谁说的（全名，不确定写空字符串）", ...}}
-说话人只能是原文里出现的人物；从上下文判断不了的写 "?"。剧本里的缩写要换成全名（按上下文和剧中人物判断）。"""
+{"speakers": {"Q1": "说话人全名", ...}, "to": {"Q1": "这句是当面对哪一个人说的（全名）", ...}}
+说话人只能是原文里出现的人物；从上下文判断不了的写 "?"。剧本里的缩写要换成全名（按上下文和剧中人物判断）。
+"to" 只写一个当面听这句话的人；自言自语、心里想的、对着一群人说的、念出来的（诗、牌名、帖子、报条）、判断不了的，一律写空字符串。"""
 
 
 def label_one(sid, seg, ev):
@@ -321,11 +361,11 @@ def card_one(sid, seg, lab, ev, page_ev_all):
     hist = [str(i) for i in seg["hist"]]
     if len(names) != 1 or speaker in ("?", "") or any(lab[h]["speaker"] in ("?", "") for h in hist):
         return sid, None, ["说话人不清楚或答案不是同一个人说的"]
-    listener = next((lab[h]["speaker"] for h in reversed(hist) if lab[h]["speaker"] != speaker), "")
-    if not listener:
-        listener = lab[tgt[0]]["to"] or ""
-    if not listener or listener == "?":
-        return sid, None, ["找不到对方"]
+    # 对方 = DeepSeek 标的「这句是对谁说的」（11-19 挑稿：拿前文最后一个说话人当对方，9 条标错人）；
+    # 标不出明确对象（自言自语、心里想、对众人嚷）的不要
+    listener = (lab[tgt[0]].get("to") or "").strip()
+    if not listener or listener in ("?", speaker) or any(c in listener for c in "、，,和众"):
+        return sid, None, ["没有明确的对方（自言自语 / 对众人 / 标不出）"]
     # 例句：小试先留空（同一人在书里有好几个叫法，靠名字认人容易安错；以后要用就整回标说话人再取）
     examples = []
     answer = "\n".join(f"{speaker}: {ev[int(i)]['t']}" for i in tgt)

@@ -11,3 +11,5 @@ private/
 .DS_Store
 __pycache__/
 .obsidian/
+.venv/
+models/

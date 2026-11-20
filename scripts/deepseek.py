@@ -19,7 +19,7 @@ def _key():
     raise SystemExit("没找到 DEEPSEEK_API_KEY（.env）")
 
 
-def chat(system, user, model="deepseek-v4-pro", json_mode=False, retries=3, timeout=600, thinking=True):
+def chat(system, user, model="deepseek-v4-pro", json_mode=False, retries=3, timeout=None, thinking=True):
     """返回 (回复文字, usage)。thinking=False 关掉思考（审稿只要一小段 JSON，思考过程占了九成多的费用）。"""
     body = {"model": model, "messages": [{"role": "system", "content": system},
                                          {"role": "user", "content": user}]}
@@ -30,6 +30,8 @@ def chat(system, user, model="deepseek-v4-pro", json_mode=False, retries=3, time
     req = urllib.request.Request(API, data=json.dumps(body).encode("utf-8"), method="POST",
                                  headers={"Content-Type": "application/json",
                                           "Authorization": f"Bearer {_key()}"})
+    # 11-20：网络抖动时请求会挂住，默认等 600 秒太久；NUO_TIMEOUT 可改（批量生成用 180）
+    timeout = timeout or int(os.environ.get("NUO_TIMEOUT", "600"))
     for attempt in range(retries):
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:

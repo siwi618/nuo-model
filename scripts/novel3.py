@@ -19,7 +19,11 @@
 二十年目睹试切 10 回只取到 2 条（第一人称，少写心思词），换成儒林外史（加回目）。
 答案是原文一个字不改（source = human）；Claude 只写代码和挑稿（留 / 不留）。
 
-用法：NUO_N=每本书最多几条（默认 40）.venv/bin/python scripts/novel3.py [fetch / segment / label / cards / all]
+2026-11-20 Ken 选省钱方案③：**DeepSeek 不审稿**，只留机器检查（抄答案 8 字 / 4 字、心里话字面、心思是不是说话人的）；
+Claude 挑稿（只决定留 / 不留），不合格的写进 data/novel-3/redo.json，跑 redo 让 DeepSeek 从头重写一次卡（不给任何意见）。
+NUO_DS_REVIEW=1 可以把 DeepSeek 审卡 / 审台词开回来。
+
+用法：NUO_N=每本书最多几条（默认 40）.venv/bin/python scripts/novel3.py [fetch / segment / label / cards / all / redo]
      结果在 data/novel-3/（不进 git）。会跳过 novel-1、novel-2 用过的句子。
 """
 
@@ -43,6 +47,7 @@ from deepseek import chat_json  # noqa: E402
 from review import inner_echo, review_card, review_lines  # noqa: E402
 
 DATE = "2026-11-20"
+DS_REVIEW = os.environ.get("NUO_DS_REVIEW") == "1"
 
 
 def pages(fmt, nums):
@@ -55,6 +60,11 @@ N.BOOKS = {
                "pages": pages("官場現形記/{:02d}", [8, 9, 10, 11, 12, 13, 19, 20, 21, 22])},
     "红楼梦": {"author": "曹雪芹 / 高鹗", "translator": "", "world": "清代京城贵族大宅",
             "pages": pages("紅樓夢/第{:03d}回", [7, 16, 24, 25, 33, 34, 35, 45, 46, 57, 60, 61])},
+    # 11-20 Ken 定扩量书单 8 本；小批先加水浒、儿女英雄传各 4 回看腔调和留存
+    "水浒传": {"author": "施耐庵 / 罗贯中", "translator": "", "world": "北宋江湖、市井",
+            "pages": pages("水滸傳 (120回本)/第{:03d}回", [7, 8, 21, 22])},
+    "儿女英雄传": {"author": "文康", "translator": "", "world": "清代北京旗人家庭和江湖",
+              "pages": ["兒女英雄傳/第四回", "兒女英雄傳/第十九回", "兒女英雄傳/第二十三回", "兒女英雄傳/第二十六回"]},
     # 二十年目睹之怪现状（11-20 试过 10 回）：第一人称叙述，很少写「心中 / 暗想」，10 回只取到 2 条 → 换儒林外史（加回目）
     "儒林外史": {"author": "吴敬梓", "translator": "", "world": "清代江南乡绅、读书人",
               "pages": pages("儒林外史/第{:02d}回", [9, 10, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24])},
@@ -224,7 +234,7 @@ def leak4(card, output):
 def card_one(sid, seg, lab, ev):
     """照 novel.card_one，改三处：请求里给【心思原文】；多查 4 字抄答案；心思不是说话人的就不要。"""
     b = N.BOOKS[seg["book"]]
-    text, qno = passage(seg, ev)
+    text, qno = passage_owner(seg, ev, seg["tgt"][-1]) if "anchor_i" in seg else passage(seg, ev)
     tgt = [str(i) for i in seg["tgt"]]
     names = {lab[i]["speaker"] for i in tgt}
     speaker = lab[tgt[0]]["speaker"]
@@ -268,13 +278,14 @@ def card_one(sid, seg, lab, ev):
         problems = N.leak_answer(card, output) + leak4(card, output) + inner_echo(card, output)
         if not (card["goal"].get("inner") or "").strip():
             problems.append("「心里想的」是空的")
-        if not problems:
+        if not problems and DS_REVIEW:
             problems = review_card(card, N.MODEL, pilot.USAGE)
-        if not problems:
+        if not problems and DS_REVIEW:
             problems = review_lines(card, output, N.MODEL, pilot.USAGE)
         log.append(problems)
         if not problems:
             break
+        # 机器检查的规矩没守住：告诉它哪条（代码规则，不是 Claude 的意见）
         request = req + "\n\n（上一版戏卡有这些问题：" + "；".join(problems) + "。答案是原著原文不能改，请改戏卡，整张重写。）"
     smp = {"id": sid, "source": "human", "use": rules["use"], "card": card, "output": output,
            "meta": {"world": b["world"], "date": DATE, "generator": f"原著原文；戏卡 {N.MODEL}", "kept_by": "",
@@ -315,18 +326,221 @@ def step_cards(raw, segs, labels):
     return samples
 
 
+# ======================= 主人优先（11-20 小批后改）=======================
+# 小批 70 条候选里 24 条「心思不是答案说话人的」：心思是甲的，紧跟着开口的是乙。
+# 改成：先找心思 → 标说话人时顺便让 DeepSeek 标「心思是谁的」（同一次调用）→ 答案取心思之后**心思主人自己**说的第一句，
+# 中间别人插的话放进前文。
+# 11-20 小批实测（同 44 回）：主人优先 131 处心思 → 35 条 → 挑稿只留 5（每留一条约 ¥0.92）；
+# 老取法 70 条候选 → 19 条 → 留 10（约 ¥0.29）。主人优先隔了几句才轮到心思主人开口，中间常换场景，
+# 前文混进他不在场时的话、心思和答案的关联也弱 → **默认用老取法（next）**，NUO_MODE=owner 才用这一套。
+MODE = os.environ.get("NUO_MODE", "next")
+MARK_L, MARK_R = "⟪", "⟫"
+
+
+def anchors_owner(book, page, ev):
+    """每处心思一个片段：after = 心思之后连着的最多 4 句说出口的话（候选答案），pre = 心思之前连着的最多 4 句。"""
+    out = []
+    allq = [i for i, e in enumerate(ev) if e["k"] == "q"]
+    speech = [i for i in allq if not ev[i]["thought"] and ev[i].get("speech")]
+    for a, e in enumerate(ev):
+        if e["k"] == "n":
+            nxt = a + 1 < len(ev) and ev[a + 1]["k"] == "q"
+            th = thought_from_narration(e["t"]) if nxt else None
+            if not th or e["t"].strip().rfind(th[:6]) < len(e["t"].strip()) - 160:
+                continue
+            anchor = "叙述"
+        elif e["k"] == "q" and e["thought"] and len(e["t"]) >= 6:
+            th, anchor = e["t"], "独白"
+        else:
+            continue
+        after, last = [], a
+        for i in [q for q in allq if q > a]:
+            gap = "".join(ev[x]["t"] for x in range(last + 1, i) if ev[x]["k"] == "n")
+            if i not in speech or len(gap) > 60 or len(after) >= 4:
+                break
+            after.append(i)
+            last = i
+        if not after:
+            continue
+        pre, first = [], a
+        for i in reversed([q for q in allq if q < a]):
+            gap = "".join(ev[x]["t"] for x in range(i + 1, first) if ev[x]["k"] == "n")
+            if i not in speech or len(gap) > 60 or len(pre) >= 4:
+                break
+            pre.insert(0, i)
+            first = i
+        out.append({"book": book, "page": page, "anchor_i": a, "anchor": anchor, "thought": th,
+                    "after": after, "pre": pre, "lo": max(0, (pre or [a])[0] - 3), "ctx_end": after[-1] + 2})
+    return out
+
+
+def passage_owner(seg, ev, tgt_end=None):
+    """片段：心思用 ⟪ ⟫ 标出；给了 tgt_end（答案最后一句）就在它后面插「之后的内容只供理解」。"""
+    lines, qno = [], {}
+    end = (tgt_end + 2) if tgt_end is not None else seg["ctx_end"]
+    for i in range(seg["lo"], min(end, len(ev))):
+        if tgt_end is not None and i == tgt_end + 1:
+            lines.append("（——以下是答案之后发生的事，只供理解；戏卡里不能用，也不能写进「已发生的事」「眼下」「知道」——）")
+        e = ev[i]
+        if e["k"] == "n":
+            t = e["t"].strip()
+            if i == seg["anchor_i"]:
+                t = t.replace(seg["thought"], MARK_L + seg["thought"] + MARK_R, 1)
+            lines.append(t)
+        else:
+            qno[i] = len(qno) + 1
+            body = f"[Q{qno[i]}]「{e['t']}」"
+            lines.append(MARK_L + body + MARK_R if i == seg["anchor_i"] else body)
+    return "\n".join(lines), qno
+
+
+SYS_LABEL_OWNER = N.SYS_LABEL.replace("只输出 JSON：", "只输出 JSON：").replace(
+    '{"speakers": {"Q1": "说话人全名", ...}, "to": {"Q1": "这句是当面对哪一个人说的（全名）", ...}}',
+    '{"speakers": {"Q1": "说话人全名", ...}, "to": {"Q1": "这句是当面对哪一个人说的（全名）", ...}, "thought_owner": "⟪ ⟫ 里那段心思是谁的（全名）"}') + \
+    "\n⟪ ⟫ 标出的是一段心思（叙述里写的某人心里怎么想，或一句内心独白）：thought_owner 写这是谁的心思，看不出来写 \"?\"。"
+assert "thought_owner" in SYS_LABEL_OWNER
+
+
+def step_segment_owner(raw):
+    rnd = N.random.Random(20261120)
+    segs, used_texts = {}, N.used_before()
+    for book, b in N.BOOKS.items():
+        cands = []
+        for page in b["pages"]:
+            ev = N.events_novel(raw[page])
+            cands += [w for w in anchors_owner(book, page, ev)
+                      if not any(ev[i]["t"] in used_texts for i in w["after"])]
+        rnd.shuffle(cands)
+        chosen, used = [], set()
+        for w in cands:
+            span = range(w["anchor_i"], w["after"][-1] + 1)
+            if any((w["page"], t) in used for t in span):
+                continue
+            chosen.append(w)
+            used |= {(w["page"], t) for t in span}
+            if len(chosen) >= N.PER_BOOK * 2:
+                break
+        for k, w in enumerate(chosen):
+            segs[f"{N.PREFIX}-{list(N.BOOKS).index(book) + 1}{k + 1:03d}"] = w
+        print(f"{book}：心思 {len(cands)} 处，取 {len(chosen)}（{dict(Counter(w['anchor'] for w in chosen))}）")
+    N.save("segments.json", segs)
+    return segs
+
+
+def step_label_owner(raw, segs):
+    labels = N.load("labels.json") or {}
+    evs, todo = {}, []
+    for sid, seg in segs.items():
+        if sid in labels:
+            continue
+        if seg["page"] not in evs:
+            evs[seg["page"]] = N.events_novel(raw[seg["page"]])
+        todo.append((sid, seg, evs[seg["page"]]))
+
+    def one(a):
+        sid, seg, ev = a
+        text, qno = passage_owner(seg, ev)
+        data, u = chat_json(SYS_LABEL_OWNER, text, model=N.MODEL)
+        pilot.USAGE.append(u)
+        lab = {str(i): {"speaker": (data.get("speakers") or {}).get(f"Q{n}", "?"),
+                        "to": (data.get("to") or {}).get(f"Q{n}", "")} for i, n in qno.items()}
+        lab["_owner"] = (data.get("thought_owner") or "?").strip()
+        return sid, lab
+    with ThreadPoolExecutor(8) as ex:
+        for sid, lab in ex.map(one, todo):
+            labels[sid] = lab
+            N.save("labels.json", labels)
+    return labels
+
+
+def pick_target(seg, lab, ev):
+    """心思主人在 after 里说的第一句当答案（下一句也是他、中间没叙述就连上）；之前的话进前文。返回新 seg 或 (None, 原因)。"""
+    owner = lab.get("_owner", "?")
+    if owner in ("?", ""):
+        return None, "看不出心思是谁的"
+    after = seg["after"]
+    idx = next((k for k, i in enumerate(after) if lab[str(i)]["speaker"] == owner), None)
+    if idx is None:
+        return None, "心思主人在后面没开口"
+    tgt = [after[idx]]
+    if idx + 1 < len(after) and lab[str(after[idx + 1])]["speaker"] == owner:
+        between = "".join(ev[x]["t"] for x in range(after[idx] + 1, after[idx + 1]) if ev[x]["k"] == "n")
+        if after[idx + 1] - after[idx] <= 2 and len(between.strip()) <= 6:
+            tgt.append(after[idx + 1])
+    hist = (seg["pre"] + after[:idx])[-4:]
+    texts = [ev[i]["t"] for i in tgt]
+    if any(len(x) > 80 or len(x) < 2 for x in texts) or sum(len(x) for x in texts) < 8:
+        return None, "答案太长或太短"
+    if any(wu(x) for x in texts) or sum(wu(ev[i]["t"]) for i in hist) >= 2:
+        return None, "方言（吴语）"
+    if any(len(ev[i]["t"]) > 90 for i in hist):
+        return None, "前文太长"
+    arch = sum(N.archaic(ev[i]["t"]) for i in tgt + hist)
+    if arch > 1 or any(N.archaic(x) for x in texts):
+        return None, "文言字"
+    return {**seg, "tgt": tgt, "hist": hist, "arch": arch, "ctx_end": tgt[-1] + 2, "owner": owner}, None
+
+
+def step_cards_owner(raw, segs, labels):
+    samples = {s["id"]: s for s in (N.load("samples.json") or [])}
+    dropped = N.load("dropped.json") or {}
+    evs, todo, per_book = {}, [], {}
+    for sid, seg in segs.items():
+        if seg["page"] not in evs:
+            evs[seg["page"]] = N.events_novel(raw[seg["page"]])
+        if sid in samples or sid in dropped or sid not in labels:
+            continue
+        ev = evs[seg["page"]]
+        s2, why = pick_target(seg, labels[sid], ev)
+        if not s2:
+            dropped[sid] = [why]
+            continue
+        have = sum(1 for s in samples.values() if s["meta"]["ref"]["book"] == seg["book"])
+        if have + per_book.get(seg["book"], 0) >= N.PER_BOOK:
+            continue
+        per_book[seg["book"]] = per_book.get(seg["book"], 0) + 1
+        todo.append((sid, s2, labels[sid], ev))
+    N.save("dropped.json", dropped)
+    with ThreadPoolExecutor(8) as ex:
+        for sid, smp, last in ex.map(lambda a: card_one(*a), todo):
+            if smp:
+                smp["meta"]["auto_check"] = last
+                samples[sid] = smp
+                N.save("samples.json", [samples[k] for k in sorted(samples)])
+            else:
+                dropped[sid] = last
+                N.save("dropped.json", dropped)
+    return samples
+
+
+def redo():
+    """Claude 挑稿判不合格、写进 redo.json（id 列表）的：从头重写一次卡，不给任何意见。旧稿存 redo_history.json。"""
+    ids = set(N.load("redo.json") or [])
+    samples = {s["id"]: s for s in (N.load("samples.json") or [])}
+    hist = N.load("redo_history.json") or {}
+    todo = [i for i in ids if i in samples and i not in hist]
+    for i in todo:
+        hist[i] = samples.pop(i)
+    N.save("redo_history.json", hist)
+    N.save("samples.json", [samples[k] for k in sorted(samples)])
+    print(f"从头重写 {len(todo)} 条卡")
+
+
 def main():
     step = sys.argv[1] if len(sys.argv) > 1 else "all"
+    if step == "redo":
+        redo()
     raw = N.step_fetch()
     if step == "fetch":
         return
-    segs = N.load("segments.json") or step_segment(raw)
+    owner = MODE == "owner"
+    segs = N.load("segments.json") or (step_segment_owner(raw) if owner else step_segment(raw))
     if step == "segment":
         return
-    labels = N.step_label(raw, segs)
+    labels = step_label_owner(raw, segs) if owner else N.step_label(raw, segs)
     if step == "label":
         return
-    samples = step_cards(raw, segs, labels)
+    samples = step_cards_owner(raw, segs, labels) if owner else step_cards(raw, segs, labels)
     ok = sum(1 for s in samples.values() if not s["meta"]["auto_check"])
     dropped = N.load("dropped.json") or {}
     print(f"样本 {len(samples)} 条，审稿全过 {ok} 条；不要的 {len(dropped)} 条")

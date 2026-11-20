@@ -8,7 +8,11 @@
 3. 重写：因为「心里话说出口」被打回（字面检查 inner_echo 或审稿）时，**从头重写、不告诉上一版哪里错**
    （11-19 验收：带着问题重写，DeepSeek 多半只换个说法）；其他问题照旧带着问题重写。
 
-用法：NUO_N=60 .venv/bin/python scripts/batch3.py [plan / cards / lines / all]
+2026-11-20 Ken 选省钱方案③：**DeepSeek 不审稿**（审稿带思考，占输出九成），只留机器检查（格式、心里话字面检查）；
+Claude 挑稿（只决定留 / 不留），不合格的写进 data/batch-3/redo.json，跑 redo 让 DeepSeek 从头重写一次（不给任何意见）。
+NUO_DS_REVIEW=1 可以把 DeepSeek 审稿开回来。
+
+用法：NUO_N=60 .venv/bin/python scripts/batch3.py [plan / cards / lines / all / redo / report]
      NUO_TOTAL=600 改总条数（默认 60，小批试跑）。结果在 data/batch-3/（不进 git）。
      跑完：.venv/bin/python scripts/batch3.py report   看「心里话」相关的数字，和 batch-2 比。
 """
@@ -30,6 +34,9 @@ from render_card import render_card  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 pilot.OUT = ROOT / "data" / os.environ.get("NUO_RUN", "batch-3")
 pilot.DATE = "2026-11-20"
+if os.environ.get("NUO_DS_REVIEW") != "1":     # 方案③：不请 DeepSeek 审稿（batch2 导入时装的钩子拿掉）
+    pilot.CARD_REVIEW = None
+    pilot.LINES_REVIEW = None
 LIMIT = int(os.environ.get("NUO_N", "60"))
 TOTAL = int(os.environ.get("NUO_TOTAL", "60"))
 P_HIDE = 0.6
@@ -112,6 +119,31 @@ def step_lines(worlds, people, plan, cards):
     return [samples[k] for k in sorted(samples)]
 
 
+def redo():
+    """Claude 挑稿判不合格、写进 redo.json（id 列表）的：卡和台词都从头重写一次，不给任何意见。旧稿存 redo_history.json。"""
+    ids = set(pilot.load("redo.json") or [])
+    samples = {s["id"]: s for s in (pilot.load("samples.json") or [])}
+    cards = pilot.load("cards.json") or {}
+    hist = pilot.load("redo_history.json") or {}
+    todo = [i for i in ids if i in samples and i not in hist]
+    for i in todo:
+        hist[i] = {"sample": samples.pop(i), "card": cards.pop(i, None)}
+    pilot.save("redo_history.json", hist)
+    pilot.save("samples.json", [samples[k] for k in sorted(samples)])
+    pilot.save("cards.json", cards)
+    print(f"从头重写 {len(todo)} 条")
+    return set(todo)
+
+
+def first_echo(s):
+    """第一稿和「心里想的」最长连续相同几个字（不管后来有没有重写），两批同一个算法。"""
+    from review import PUNCT, longest_common
+    raw = s["meta"]["failed_attempts"][0]["raw"] if s["meta"]["failed_attempts"] else s["meta"]["raw"]
+    out, _ = pilot.parse_lines(raw)
+    inner = PUNCT.sub("", s["card"]["goal"].get("inner", "") or "")
+    return longest_common(inner, PUNCT.sub("", "".join(o["text"] for o in out))) if inner else 0
+
+
 def report():
     """「心里话」相关数字，和 batch-2 同口径比（batch-2 没有 inner_style，全算 normal）。"""
     def stats(name, samples):
@@ -124,7 +156,10 @@ def report():
         kept = [s for s in samples if s["meta"].get("keep") is not None]
         keep = sum(1 for s in kept if s["meta"]["keep"])
         styles = Counter(s["meta"].get("inner_style", "normal") for s in samples)
-        print(f"{name}: {n} 条（{dict(styles)}）；第一稿因心里话被打回 {first}（{first / max(1, n):.0%}）；"
+        e = [first_echo(s) for s in samples]
+        print(f"{name}: 第一稿和心里想的字面重合 ≥4 字 {sum(x >= 4 for x in e)}（{sum(x >= 4 for x in e) / max(1, n):.0%}），"
+              f"≥6 字 {sum(x >= 6 for x in e)}（{sum(x >= 6 for x in e) / max(1, n):.0%}）")
+        print(f"    {n} 条（{dict(styles)}）；第一稿因心里话被打回 {first}（{first / max(1, n):.0%}）；"
               f"任何一稿被打回过 {ever}；三稿都没过且最后一稿是心里话 {final}"
               + (f"；挑稿留 {keep}/{len(kept)}（{keep / max(1, len(kept)):.0%}）" if kept else "；还没挑稿"))
     b2 = json.loads((ROOT / "data" / "batch-2" / "samples.json").read_text(encoding="utf-8"))
@@ -142,6 +177,8 @@ def main():
     if step == "report":
         report()
         return
+    if step == "redo":
+        redo()
     plan = pilot.load("plan.json")
     if not plan:
         plan = make_plan()

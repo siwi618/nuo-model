@@ -6,6 +6,9 @@
 用法（在仓库根目录跑）：
   .venv/bin/python scripts/cut_exam.py 输出前缀 截断后前缀 [--exam exam/考卷.jsonl]
   例：.venv/bin/python scripts/cut_exam.py data/x/c2bh-pen data/x/c2bhcut-pen   # 处理 -s0/-s1/-s2
+  加 --full 前缀：另存一份「只含被截过的卡、不截断的原样」，拿去盲评，看截掉的句子里藏了什么
+  （2026-11-20 加，查「隐形缺陷」：截断会把多出来的句子里的毛病一起删掉）。
+  例：... data/x/c2b-pen data/x/c2bcut-pen --full data/x/c2bfull-pen
 """
 
 import argparse
@@ -34,6 +37,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("src")
     ap.add_argument("dst")
+    ap.add_argument("--full", help="另存被截过的卡的原样输出，写到这个前缀")
     ap.add_argument("--exam", default=str(HERE.parent / "exam" / "考卷.jsonl"))
     a = ap.parse_args()
     max_lines = {}
@@ -45,8 +49,23 @@ def main():
     files = sorted(src.parent.glob(src.name + "-s*.txt"))
     for p in files:
         q = Path(a.dst + p.name[len(src.name):])
-        q.write_text(cut_text(p.read_text(encoding="utf-8"), max_lines), encoding="utf-8")
-        print(p, "→", q)
+        text = p.read_text(encoding="utf-8")
+        q.write_text(cut_text(text, max_lines), encoding="utf-8")
+        msg = f"{p} → {q}"
+        if a.full:
+            blocks, cur = {}, None
+            for line in text.splitlines():
+                m = re.match(r"=== (\S+?)（", line)
+                if m:
+                    cur = m.group(1)
+                    blocks[cur] = [line]
+                elif cur and line.strip():
+                    blocks[cur].append(line.strip())
+            cut = [b for i, b in blocks.items() if len(b) - 1 > max_lines.get(i, 10**9)]
+            f = Path(a.full + p.name[len(src.name):])
+            f.write_text("".join("\n".join(b) + "\n" for b in cut), encoding="utf-8")
+            msg += f"；被截过 {len(cut)} 张 → {f}"
+        print(msg)
 
 
 if __name__ == "__main__":

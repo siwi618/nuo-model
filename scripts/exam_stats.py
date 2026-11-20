@@ -9,6 +9,8 @@
 1. 每个版本：各档合规率（张数 × 种子数里有几次全合规）、加权总分、95% 区间（按卡重抽样）、问题计数。
 2. 第一个版本当基准，其他版本逐卡配对：同一张卡、同一组种子的合规率差 → 赢 / 输 / 平几张、
    加权差及 95% 区间。区间跨过 0 = 这次比不出差别。
+3. 内容模式（content / all）另报「按考点」：每项问题只拿考这一项的卡当分母（exam/考点.json，
+   2026-11-20 加，防「隐形缺陷」：弱版本某项问题少，可能只是没机会犯）；加 --mask 再报遮挡表。
 种子要对齐（同名 -sN 对同名 -sN），版本之间才算配对。
 """
 
@@ -71,6 +73,8 @@ def main():
     ap.add_argument("--mode", default="raw,fixed", help="raw = 原样查格式；fixed = 先按游戏代码把关修一遍再查（删括号动作、清单外表情）；"
                     "content = 只看内容盲评（要 --judge）；all = 修后格式 + 内容都过。逗号分隔可报多种")
     ap.add_argument("--judge", help="judge_exam.py 的结果文件（jsonl）")
+    ap.add_argument("--probes", default=str(HERE.parent / "exam" / "考点.json"), help="考点标注；给空字符串就不报")
+    ap.add_argument("--mask", action="store_true", help="内容模式下加报遮挡表")
     a = ap.parse_args()
     for mode in a.mode.split(","):
         report(a, mode.strip())
@@ -89,6 +93,52 @@ def load_judge(path):
     return out
 
 
+# 每项问题看哪些考点的卡（左边考点的卡当分母；多个就分开报）
+PROBE_OF = [
+    ("心里话说出口", ["心里话·要藏", "心里话·可说"]),
+    ("说漏秘密", ["说漏秘密", "秘密·被追问"]),
+    ("出戏", ["出戏"]),
+    ("称呼或人物错", ["有旁人"]),
+    ("口头禅滥用", ["口头禅"]),
+    ("没办成", ["多件事"]),
+]
+MASKS = ["语句不通或不合人设", "没办成", "称呼或人物错"]
+TARGETS = ["心里话说出口", "说漏秘密", "出戏", "口头禅滥用"]
+
+
+def load_probes(path):
+    if not path or not Path(path).exists():
+        return {}
+    return {i: set(v["考"]) for i, v in json.loads(Path(path).read_text(encoding="utf-8"))["卡"].items()}
+
+
+def pct(n, d):
+    return f"{n}/{d}（{100 * n / d:.0f}%）" if d else "0/0"
+
+
+def probe_lines(sc, probes):
+    out = []
+    for prob, tags in PROBE_OF:
+        parts = []
+        for t in tags:
+            js = [j for j in sc if t in probes.get(j["id"], ())]
+            parts.append(f"{t} {pct(sum(prob in j['problems'] for j in js), len(js))}")
+        out.append(f"{prob}：" + "，".join(parts))
+    return out
+
+
+def mask_lines(sc):
+    """遮挡表：某项大毛病出现 / 没出现时，别的问题各占多少。两边差得多 = 可能被遮住或被带出来。"""
+    out = []
+    for m in MASKS:
+        yes = [j for j in sc if m in j["problems"]]
+        no = [j for j in sc if m not in j["problems"]]
+        cells = [f"{t} 有 {pct(sum(t in j['problems'] for j in yes), len(yes))} / 没有 {pct(sum(t in j['problems'] for j in no), len(no))}"
+                 for t in TARGETS]
+        out.append(f"「{m}」：" + "；".join(cells))
+    return out
+
+
 def report(a, mode):
 
     weights = {k: float(v) for k, v in (x.split("=") for x in a.weights.split(","))}
@@ -100,6 +150,7 @@ def report(a, mode):
             tier_of[d["id"]] = (d.get("meta") or {}).get("tier") or "中等"
 
     judge = load_judge(a.judge)
+    probes = load_probes(a.probes)
     if mode in ("content", "all") and not judge:
         sys.exit("--mode content / all 要给 --judge")
 
@@ -155,6 +206,11 @@ def report(a, mode):
             got = Counter(j["办成"] for j in sc)
             if like:
                 print(f"    像不像 平均 {sum(like) / len(like):.2f}（1–5）；办成 2 / 1 / 0：{got[2]} / {got[1]} / {got[0]}")
+            if probes:
+                print("    按考点：" + "；".join(probe_lines(sc, probes)))
+            if a.mask:
+                for t in mask_lines(sc):
+                    print("    遮挡 " + t)
 
     labels = list(versions)
     if len(labels) > 1:

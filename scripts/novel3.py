@@ -70,6 +70,35 @@ N.BOOKS = {
               "pages": pages("儒林外史/第{:02d}回", [9, 10, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24])},
 }
 
+CN = "零一二三四五六七八九"
+
+
+def cn_num(n):
+    """1–99 → 第一 / 第十 / 第二十三（儿女英雄传、赵子曰的页名）。"""
+    t, o = divmod(n, 10)
+    return (("" if t == 1 else CN[t]) + "十" if t else "") + (CN[o] if o else "") if n >= 10 else CN[n]
+
+
+# 扩量（11-20 Ken 定 8 本全书）：NUO_BOOKS=full。页名由维基文库 allpages 核过；赵子曰底本标「小說月報 1927」（非 1948 修订本）
+BOOKS_FULL = {
+    "红楼梦": {"author": "曹雪芹 / 高鹗", "translator": "", "world": "清代京城贵族大宅",
+            "pages": pages("紅樓夢/第{:03d}回", range(1, 121))},
+    "官场现形记": {"author": "李宝嘉（李伯元）", "translator": "", "world": "晚清官场",
+               "pages": pages("官場現形記/{:02d}", range(1, 61))},
+    "水浒传": {"author": "施耐庵 / 罗贯中", "translator": "", "world": "北宋江湖、市井",
+            "pages": pages("水滸傳 (120回本)/第{:03d}回", range(1, 121))},
+    "儿女英雄传": {"author": "文康", "translator": "", "world": "清代北京旗人家庭和江湖",
+              "pages": [f"兒女英雄傳/第{cn_num(n)}回" for n in range(1, 41)]},
+    "三侠五义": {"author": "石玉昆", "translator": "", "world": "北宋开封府、江湖侠客",
+             "pages": pages("三俠五義/第{:03d}回", range(1, 121))},
+    "文明小史": {"author": "李宝嘉（李伯元）", "translator": "", "world": "晚清维新时期的官场和读书人",
+             "pages": pages("文明小史/第{:02d}回", range(1, 61))},
+    "儒林外史": {"author": "吴敬梓", "translator": "", "world": "清代江南乡绅、读书人",
+              "pages": pages("儒林外史/第{:02d}回", range(1, 57))},
+    "赵子曰": {"author": "老舍", "translator": "", "world": "民国北京的大学生公寓",
+            "pages": [f"趙子曰/第{cn_num(n)}" for n in range(1, 24)]},
+}
+
 # 叙述里的心思词（11-20 统计用的同一组）
 MIND = re.compile(r"(心中|心下|心里|心内|心头|心上|肚里|肚内|暗想|暗忖|寻思|自思|自忖|暗道|想道|心想)")
 SENT_END = "。！？；"
@@ -155,7 +184,8 @@ def windows(book, page, ev):
                 continue
             lo = max(0, (hist[0] if hist else anchor_i) - 3)
             out.append({"book": book, "page": page, "hist": hist, "tgt": tgt, "lo": lo,
-                        "ctx_end": tgt[-1] + 2, "arch": arch, "thought": thought, "anchor": anchor})
+                        "ctx_end": tgt[-1] + 2, "arch": arch, "thought": thought, "anchor": anchor,
+                        "anchor_i": anchor_i})
     return out
 
 
@@ -204,10 +234,12 @@ def step_segment(raw):
 
 N.windows = windows
 N.passage = passage
+if os.environ.get("NUO_BOOKS") == "full":
+    N.BOOKS = BOOKS_FULL
 
 SYS_CARD3 = N.SYS_NOVEL_CARD.replace(
     '- "goal"：{"must": 这几句话要办成的事（具体，但不引用原话）, "inner": 说话人心里想的、没说出口的（潜台词，不能和答案字面相近）, "dont_leak": [这场要藏住、不能说出口的事；没有就空列表]}',
-    '- "goal"：{"must": 这几句话要办成的事（具体，但不引用原话、不逐项复述答案）, "inner": 根据【心思原文】用现代白话转述说话人此刻的心思（不能照抄原文，不能用答案里的词）, "dont_leak": [这场要藏住、不能说出口的事；没有就空列表]}\n'
+    '- "goal"：{"must": 这几句话想达成的结果（一句话的方向，如「把他打发走」「让她安心」；**不写他会怎么说、说哪几件事、拿什么理由**——那是演员要演的，写进卡就等于泄露答案）, "inner": 只根据【心思原文】用现代白话转述说话人此刻的心思（不能照抄原文；**不能加进答案里才有的打算、理由、具体事**）, "dont_leak": [这场要藏住、不能说出口的事；没有就空列表]}\n'
     '- "thought_is_speaker"：【心思原文】写的是不是【答案】说话人自己的心思（是 true；是对方或旁人的、看不出来是谁的，false）')
 assert SYS_CARD3 != N.SYS_NOVEL_CARD
 SYS_CARD3 += """
@@ -306,6 +338,14 @@ def step_cards(raw, segs, labels):
             evs[seg["page"]] = N.events_novel(raw[seg["page"]])
         if sid in samples or sid in dropped or sid not in labels:
             continue
+        # 11-20 扩量前加：标注时已问过心思是谁的，不是答案说话人的就不写卡（小批 70 条里 24 条写完卡才发现）
+        lab = labels[sid]
+        if "_owner" in lab:
+            spk = lab.get(str(seg["tgt"][0]), {}).get("speaker", "?")
+            if lab["_owner"] in ("?", "") or lab["_owner"] != spk:
+                dropped[sid] = [f"心思不是答案说话人的（标注：心思 {lab['_owner']}，说话 {spk}）"]
+                N.save("dropped.json", dropped)
+                continue
         have = sum(1 for s in samples.values() if s["meta"]["ref"]["book"] == seg["book"])
         if have + per_book.get(seg["book"], 0) >= N.PER_BOOK:
             continue
@@ -537,7 +577,9 @@ def main():
     segs = N.load("segments.json") or (step_segment_owner(raw) if owner else step_segment(raw))
     if step == "segment":
         return
-    labels = step_label_owner(raw, segs) if owner else N.step_label(raw, segs)
+    # 老取法的新片段带 anchor_i：也用带 ⟪ ⟫ 的标注，顺便标心思主人（同一次调用，不多花钱）
+    labels = step_label_owner(raw, segs) if (owner or all("anchor_i" in w for w in segs.values())) \
+        else N.step_label(raw, segs)
     if step == "label":
         return
     samples = step_cards_owner(raw, segs, labels) if owner else step_cards(raw, segs, labels)

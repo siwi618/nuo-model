@@ -43,7 +43,9 @@ P_HIDE = 0.6
 
 HIDE_NEED = ("「心里想的」（goal.inner）这一场要特别写：写说话人此刻真实的看法、盘算或顾虑，"
              "**当面说出来会伤人、露怯或坏事**；它**不能是办成「要办成」的理由**，但要和这一场谈的话题挨得很近，"
-             "让人说话时容易顺嘴带出来。不要写成「希望事情顺利」这类说出来也无妨的话。")
+             "让人说话时容易顺嘴带出来。不要写成「希望事情顺利」这类说出来也无妨的话；"
+             "也**不能是他想办成这件事的动机**，**不能和他「不能说」的秘密、「别说漏」是同一件事**"
+             "（11-20 小批：这两种占了不合格的大半）。")
 GEN_NOTE = ("（写之前先想清楚：他嘴上要说什么才能办成【目的】；「心里想的」只能从语气、话题、用词里透出来，"
             "不能把它的意思讲出口，换个说法讲也不行。）")
 INNER_TAGS = ("心里话说出口", "「心里想的」被原话说了出来")
@@ -59,17 +61,18 @@ def card_request(it, world, person):
 pilot.card_request = card_request
 
 
-def make_plan(seed=20261120):
+def make_plan(seed=20261120, total=None):
     """每人轮流排，整段 / 接一句各半（batch.per_person），六成标 hide。"""
+    total = total or TOTAL
     rnd = random.Random(seed)
     people = list(pilot.PEOPLE)
-    per = max(2, -(-TOTAL // len(people)))
+    per = max(2, -(-total // len(people)))
     pools = {p: batch2.batch.per_person(rnd, p, per) for p in people}
     plan = []
     k = 0
-    while len(plan) < TOTAL:
+    while len(plan) < total:
         for p in people:
-            if k < len(pools[p]) and len(plan) < TOTAL:
+            if k < len(pools[p]) and len(plan) < total:
                 plan.append(pools[p][k])
         k += 1
     for i, it in enumerate(plan):
@@ -182,6 +185,12 @@ def main():
     plan = pilot.load("plan.json")
     if not plan:
         plan = make_plan()
+        pilot.save("plan.json", plan)
+    elif TOTAL > len(plan):          # 扩量：在已有计划后面接着排，已做的编号不变（换种子，免得和前面重复）
+        more = make_plan(seed=20261121, total=TOTAL - len(plan))
+        for k, it in enumerate(more):
+            it["id"] = f"b3-{len(plan) + k + 1:03d}"
+        plan += more
         pilot.save("plan.json", plan)
     if step == "plan":
         print(f"共 {len(plan)} 条；hide {sum(it['inner_style'] == 'hide' for it in plan)}；"

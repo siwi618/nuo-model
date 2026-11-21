@@ -6,6 +6,7 @@
   2. 本机生成：.venv/bin/python scripts/run_exam.py models/v3 data/dpo/gen --exam data/dpo/cards.jsonl --seeds 0,1,2,3 --temp 0.9
      截断：.venv/bin/python scripts/cut_exam.py data/dpo/gen data/dpo/gencut --exam data/dpo/cards.jsonl
   3. 盲评：.venv/bin/python scripts/judge_exam.py data/dpo/judge.jsonl data/dpo/gencut --exam data/dpo/cards.jsonl
+  3b. 原答案也评一遍（只评要拿来顶的那些）：写成 data/dpo/ref-s0.txt 再 judge_exam → data/dpo/judge-ref.jsonl
   4. pairs：.venv/bin/python scripts/dpo_prep.py pairs → data/dpo/pairs.jsonl（{"prompt": [system, user], "chosen": 台词, "rejected": 台词, ...}）
 """
 import argparse
@@ -52,7 +53,10 @@ def bad(j):    # 主要毛病：心里话说出口 / 没办成（其余硬伤不
     return "心里话说出口" in j["problems"] or "没办成" in j["problems"]
 
 
-def pairs(use_ref):
+def pairs(use_ref, ref_judge=None):
+    ok_ref = None
+    if ref_judge and Path(ref_judge).exists():   # 原答案也用同一评审评过：只有全过的原答案才能当好例子（11-21：113 条里 11 条自己就说漏心里话）
+        ok_ref = {json.loads(l)["id"] for l in Path(ref_judge).read_text(encoding="utf-8").splitlines() if l.strip() and json.loads(l)["pass"]}
     cards = {json.loads(l)["id"]: json.loads(l) for l in (D / "cards.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()}
     by = defaultdict(list)
     for l in (D / "judge.jsonl").read_text(encoding="utf-8").splitlines():
@@ -69,7 +73,8 @@ def pairs(use_ref):
         stat["有坏"] += bool(b)
         if not b:
             continue
-        chosen = [(j["lines"], "model") for j in g] or ([(cards[cid]["ref"], "ref")] if use_ref else [])
+        ref_ok = use_ref and (ok_ref is None or cid in ok_ref)
+        chosen = [(j["lines"], "model") for j in g] or ([(cards[cid]["ref"], "ref")] if ref_ok else [])
         if not chosen:
             stat["有坏没好（跳过）"] += 1
             continue
@@ -92,5 +97,6 @@ if __name__ == "__main__":
     ap.add_argument("cmd", choices=["cards", "pairs"])
     ap.add_argument("--n", type=int, default=300)
     ap.add_argument("--no-ref", action="store_true", help="没有好的生成时不拿原答案顶")
+    ap.add_argument("--ref-judge", default=str(D / "judge-ref.jsonl"), help="原答案的评审结果；有就只用全过的原答案")
     a = ap.parse_args()
-    cards(a.n) if a.cmd == "cards" else pairs(not a.no_ref)
+    cards(a.n) if a.cmd == "cards" else pairs(not a.no_ref, a.ref_judge)

@@ -49,11 +49,17 @@ def good(j):   # 藏住且办成：没有任何硬伤，办成 = 2
     return j["pass"] and j["办成"] == 2
 
 
-def bad(j):    # 主要毛病：心里话说出口 / 没办成（其余硬伤不拿来当坏例子，免得教偏）
+BAD_MODE = "target"
+
+
+def bad(j):
+    """target（定向版）= 心里话说出口 / 没办成；any（加宽版，11-21 加）= 任何硬伤都算（含语句不通或不合人设，练习卡上占 55%）。"""
+    if BAD_MODE == "any":
+        return not j["pass"]
     return "心里话说出口" in j["problems"] or "没办成" in j["problems"]
 
 
-def pairs(use_ref, ref_judge=None):
+def pairs(use_ref, ref_judge=None, out_name="pairs.jsonl"):
     ok_ref = None
     if ref_judge and Path(ref_judge).exists():   # 原答案也用同一评审评过：只有全过的原答案才能当好例子（11-21：113 条里 11 条自己就说漏心里话）
         ok_ref = {json.loads(l)["id"] for l in Path(ref_judge).read_text(encoding="utf-8").splitlines() if l.strip() and json.loads(l)["pass"]}
@@ -83,13 +89,28 @@ def pairs(use_ref, ref_judge=None):
             user = render_card(cards[cid]["card"])
             out.append({"id": cid, "prompt": [{"role": "system", "content": SYS_LINES}, {"role": "user", "content": user}],
                         "chosen": ch, "rejected": rj["lines"], "chosen_src": src,
-                        "why": [p for p in rj["problems"] if p in ("心里话说出口", "没办成")]})
+                        "why": rj["problems"] if BAD_MODE == "any" else [p for p in rj["problems"] if p in ("心里话说出口", "没办成")]})
             stat["对（" + src + "）"] += 1
             for p in out[-1]["why"]:
                 stat["坏：" + p] += 1
     rnd.shuffle(out)
-    (D / "pairs.jsonl").write_text("\n".join(json.dumps(p, ensure_ascii=False) for p in out) + "\n", encoding="utf-8")
-    print(f"pairs.jsonl：{len(out)} 对；{dict(stat)}")
+    (D / out_name).write_text("\n".join(json.dumps(p, ensure_ascii=False) for p in out) + "\n", encoding="utf-8")
+    print(f"{out_name}：{len(out)} 对；{dict(stat)}")
+
+
+def need_ref(ref_judge):
+    cards = {json.loads(l)["id"]: json.loads(l) for l in (D / "cards.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()}
+    done = {json.loads(l)["id"] for l in Path(ref_judge).read_text(encoding="utf-8").splitlines() if l.strip()} if Path(ref_judge).exists() else set()
+    by = defaultdict(list)
+    for l in (D / "judge.jsonl").read_text(encoding="utf-8").splitlines():
+        if l.strip():
+            j = json.loads(l); by[j["id"]].append(j)
+    todo = [cid for cid, js in by.items() if any(bad(j) for j in js) and not any(good(j) for j in js) and cid not in done]
+    blk = []
+    for cid in sorted(todo):
+        blk.append(f"=== {cid}（{cards[cid]['card']['speaker']['name']}）"); blk += cards[cid]["ref"].split("\n")
+    (D / "ref-todo-s0.txt").write_text("\n".join(blk) + "\n", encoding="utf-8")
+    print(f"还要评的原答案 {len(todo)} 条 → ref-todo-s0.txt")
 
 
 if __name__ == "__main__":
@@ -97,6 +118,15 @@ if __name__ == "__main__":
     ap.add_argument("cmd", choices=["cards", "pairs"])
     ap.add_argument("--n", type=int, default=300)
     ap.add_argument("--no-ref", action="store_true", help="没有好的生成时不拿原答案顶")
+    ap.add_argument("--bad", choices=["target", "any"], default="target", help="target = 定向版；any = 加宽版")
+    ap.add_argument("--out", default="pairs.jsonl")
+    ap.add_argument("--need-ref", action="store_true", help="只列出这一版要拿原答案顶、但原答案还没评过的卡，写成 ref-todo.txt（judge_exam 能直接评）")
     ap.add_argument("--ref-judge", default=str(D / "judge-ref.jsonl"), help="原答案的评审结果；有就只用全过的原答案")
     a = ap.parse_args()
-    cards(a.n) if a.cmd == "cards" else pairs(not a.no_ref, a.ref_judge)
+    BAD_MODE = a.bad
+    if a.cmd == "cards":
+        cards(a.n)
+    elif a.need_ref:
+        need_ref(a.ref_judge)
+    else:
+        pairs(not a.no_ref, a.ref_judge, a.out)

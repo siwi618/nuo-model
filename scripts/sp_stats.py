@@ -37,6 +37,6 @@ def paired(a, b, key=leak):
     return d0, bs[100], bs[3899]
 for lab in [base] + labs: show(lab)
 print('\n配对（同卡同种子，按卡重抽 95% 区间）：说出口率差 / 办成=0 率差 / 全过率差')
-for a, b in [(l, base) for l in labs] + [('c3n', 'c3'), ('c3ns1', 'c3s1'), ('c3s1', 'c3'), ('c3ns1', 'c3n')]:
+for a, b in [(l, base) for l in labs] + [tuple(p.split('-')) for p in (sys.argv[4].split(',') if len(sys.argv) > 4 else [])]:
     r1 = paired(a, b); r2 = paired(a, b, lambda x: x['办成'] == 0); r3 = paired(a, b, lambda x: x['pass'])
     print(f"  {a:6s} − {b:7s}: 说出口 {r1[0]:+.1f} [{r1[1]:+.0f} ~ {r1[2]:+.0f}]   没办成 {r2[0]:+.1f} [{r2[1]:+.0f} ~ {r2[2]:+.0f}]   全过 {r3[0]:+.1f} [{r3[1]:+.0f} ~ {r3[2]:+.0f}]")

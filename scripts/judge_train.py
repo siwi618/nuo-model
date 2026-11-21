@@ -28,6 +28,8 @@ DS = {"旧数据": ["batch-1", "batch-2"], "batch-3": ["batch-3"]}
 
 def kept(d):
     p = ROOT / "data" / d / "samples.json"
+    if d == "novel-must":  # rewrite_must.py 的产物：都是挑过留下的，换过「要办成」
+        return json.loads(p.read_text(encoding="utf-8"))
     return [r for r in json.loads(p.read_text(encoding="utf-8")) if r.get("meta", {}).get("keep") is True and r["source"] in TRAINABLE]
 
 
@@ -40,7 +42,7 @@ def lines_of(r):
 
 
 def group_of(d, r):
-    if d in NOVEL:
+    if d in NOVEL or d == "novel-must":
         return "小说:" + ((r.get("meta", {}).get("ref") or {}).get("book") or d)
     return next(g for g, ds in DS.items() if d in ds)
 
@@ -67,13 +69,14 @@ def main():
     ap.add_argument("--n-ds", type=int, default=90, help="每组 DeepSeek 样本抽几条")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--stats", action="store_true")
+    ap.add_argument("--novel-dirs", default=",".join(NOVEL), help="小说样本来自哪些目录，如 novel-must（重写过要办成的）")
     a = ap.parse_args()
     if a.stats:
         return stats(a.out)
     sys_judge = SYS_JUDGE_T.format(inner_extra="")
     rnd = random.Random(20261121)
     todo, seen = [], set()
-    for d in NOVEL:
+    for d in a.novel_dirs.split(","):
         for r in kept(d):
             k = json.dumps(r["output"], ensure_ascii=False)
             if k not in seen:

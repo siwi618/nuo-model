@@ -56,6 +56,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--total", type=int, default=700)
     ap.add_argument("--novel-share", type=float, default=0.25)
+    ap.add_argument("--full", action="store_true", help="另出正式版候选：DeepSeek 池全部 + 小说池全部 → data/v3/mlx-full")
     a = ap.parse_args()
     n_nov = round(a.total * a.novel_share)
     rnd = random.Random(20261120)
@@ -119,6 +120,15 @@ def main():
         (d / "valid.jsonl").write_text("\n".join(json.dumps(c, ensure_ascii=False) for c in valid) + "\n", encoding="utf-8")
         manifest[name] = [s for s, _ in rows]
         print(f"{name}: train {len(rows)}（{dict(Counter(s.split(':')[0] for s, _ in rows))}），valid {len(valid)}")
+    if a.full:                       # 正式版候选（11-20 晚 Ken 定先训着）：全部 DeepSeek + 全部小说，验证集同一份
+        rows = [x for v in ds.values() for x in v] + [(src, c) for _, src, c in uniq]
+        random.Random(20261122).shuffle(rows)
+        d = out / "mlx-full"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "train.jsonl").write_text("\n".join(json.dumps(c, ensure_ascii=False) for _, c in rows) + "\n", encoding="utf-8")
+        (d / "valid.jsonl").write_text("\n".join(json.dumps(c, ensure_ascii=False) for c in valid) + "\n", encoding="utf-8")
+        manifest["mlx-full"] = [s for s, _ in rows]
+        print(f"mlx-full: train {len(rows)}，valid {len(valid)}")
     manifest["小说按书"] = dict(by)
     (out / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1), encoding="utf-8")
     print("小说按书：", dict(by.most_common()))

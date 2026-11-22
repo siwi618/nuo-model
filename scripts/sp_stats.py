@@ -25,10 +25,11 @@ def show(lab):
           f"办成2/1/0 {bc[2]}/{bc[1]}/{bc[0]}  全过 {ok} ({100*ok/n:.0f}%)  像不像 {sum(x['像不像'] for x in d.values())/n:.2f}  说漏秘密 {lk_secret}")
 def paired(a, b, key=leak):
     cards = sorted({k[0] for k in R[a]} & {k[0] for k in R[b]})
+    seeds = sorted({k[1] for k in R[a]} & {k[1] for k in R[b]}, key=int)
     def diff(cs):
         s = 0; m = 0
         for c in cs:
-            for sd in map(str, range(9)):
+            for sd in seeds:   # 两边共有的种子（11-22 起重考用 9–17，不再写死 0–8）
                 if (c, sd) in R[a] and (c, sd) in R[b]:
                     s += key(R[a][(c, sd)]) - key(R[b][(c, sd)]); m += 1
         return 100 * s / m

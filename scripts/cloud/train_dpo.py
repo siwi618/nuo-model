@@ -70,10 +70,17 @@ def pair_eval(model, pairs, beta, dev):
     return acc / max(len(pairs), 1), marg / max(len(pairs), 1)
 
 
+def stack(base, loras):
+    """依次把逗号分隔的 LoRA 合并进去（每层都是在前一层合并后的模型上训的）。"""
+    for path in loras.split(","):
+        base = PeftModel.from_pretrained(base, path).merge_and_unload()
+    return base
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", required=True)
-    ap.add_argument("--init-lora", required=True, help="v3 的 LoRA 检查点目录（ckpt-600）")
+    ap.add_argument("--init-lora", required=True, help="v3 的 LoRA 检查点目录（ckpt-600）；逗号分隔可依次合并多层（11-22 第二轮迭代：v3 ckpt-600,dpoa-s1 ckpt-170）")
     ap.add_argument("--pairs", required=True)
     ap.add_argument("--sft-val", required=True, help="v3 的 valid.jsonl（messages 格式），看普通损失")
     ap.add_argument("--out", required=True)
@@ -93,7 +100,7 @@ def main():
     dev = "cuda"
     tok = AutoTokenizer.from_pretrained(a.model)
     base = AutoModelForCausalLM.from_pretrained(a.model, dtype=torch.bfloat16)
-    model = PeftModel.from_pretrained(base, a.init_lora).merge_and_unload().to(dev)   # = v3
+    model = stack(base, a.init_lora).to(dev)   # = v3（第二轮 = v3 + 第一轮 DPO）
     model.gradient_checkpointing_enable(); model.enable_input_require_grads(); model.config.use_cache = False
     targets = [n for n, m in model.named_modules() if isinstance(m, torch.nn.Linear) and "visual" not in n
                and "lm_head" not in n and re.search(r"\.layers\.\d+\.", n)]
@@ -152,7 +159,7 @@ def main():
     pick = saved[-1] if a.merge == "last" else int(a.merge)
     del model, opt; torch.cuda.empty_cache()
     base = AutoModelForCausalLM.from_pretrained(a.model, dtype=torch.bfloat16)
-    v3 = PeftModel.from_pretrained(base, a.init_lora).merge_and_unload()
+    v3 = stack(base, a.init_lora)
     merged = PeftModel.from_pretrained(v3, out / f"ckpt-{pick}").merge_and_unload()
     merged.save_pretrained(out / "merged", safe_serialization=True); tok.save_pretrained(out / "merged")
     write({"merged": str(out / "merged"), "from": f"ckpt-{pick}"})

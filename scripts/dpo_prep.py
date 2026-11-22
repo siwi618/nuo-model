@@ -8,6 +8,8 @@
   3. 盲评：.venv/bin/python scripts/judge_exam.py data/dpo/judge.jsonl data/dpo/gencut --exam data/dpo/cards.jsonl
   3b. 原答案也评一遍（只评要拿来顶的那些）：写成 data/dpo/ref-s0.txt 再 judge_exam → data/dpo/judge-ref.jsonl
   4. pairs：.venv/bin/python scripts/dpo_prep.py pairs → data/dpo/pairs.jsonl（{"prompt": [system, user], "chosen": 台词, "rejected": 台词, ...}）
+
+2026-11-22 第二轮迭代 DPO：--dir data/dpo2 换一个目录；cards --all = 池里所有 v3 没见过的卡（含第一轮那 300 张，重新采样是 Iterative RPO 的做法），由 dpoa-s1 生成。
 """
 import argparse
 import json
@@ -26,7 +28,7 @@ from to_mlx import SYS_LINES, lines_text  # noqa: E402
 D = ROOT / "data/dpo"
 
 
-def cards(n):
+def cards(n, take_all=False):
     v3 = [json.loads(l) for l in (ROOT / "data/v3/mlx-v3/train.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
     seen = {c["messages"][1]["content"] for c in v3}
     pools = {}
@@ -34,6 +36,8 @@ def cards(n):
         pools[d] = [r for r in kept(d) if render_card(r["card"]) not in seen and (r["card"].get("goal") or {}).get("inner")]
     rnd = random.Random(20261121)
     want = {"batch-3": n // 2, "batch-1": n // 4, "batch-2": n - n // 2 - n // 4}
+    if take_all:
+        want = {d: len(v) for d, v in pools.items()}
     out = []
     for d, k in want.items():
         rows = pools[d][:]
@@ -121,11 +125,15 @@ if __name__ == "__main__":
     ap.add_argument("--bad", choices=["target", "any"], default="target", help="target = 定向版；any = 加宽版")
     ap.add_argument("--out", default="pairs.jsonl")
     ap.add_argument("--need-ref", action="store_true", help="只列出这一版要拿原答案顶、但原答案还没评过的卡，写成 ref-todo.txt（judge_exam 能直接评）")
-    ap.add_argument("--ref-judge", default=str(D / "judge-ref.jsonl"), help="原答案的评审结果；有就只用全过的原答案")
+    ap.add_argument("--ref-judge", default=None, help="原答案的评审结果（默认 <dir>/judge-ref.jsonl）；有就只用全过的原答案")
+    ap.add_argument("--dir", default=str(D), help="工作目录（默认 data/dpo；第二轮用 data/dpo2）")
+    ap.add_argument("--all", action="store_true", help="cards：取池里所有 v3 没见过的卡，忽略 --n")
     a = ap.parse_args()
     BAD_MODE = a.bad
+    D = Path(a.dir)
+    a.ref_judge = a.ref_judge or str(D / "judge-ref.jsonl")
     if a.cmd == "cards":
-        cards(a.n)
+        cards(a.n, a.all)
     elif a.need_ref:
         need_ref(a.ref_judge)
     else:

@@ -32,4 +32,6 @@ PY
     && md5sum $name-mlx4.tgz >> $T/nuo/early.done && stat -c %s $name-mlx4.tgz >> $T/nuo/early.done)
 done
 log "ALL DONE"
+# 合并完等 15 分钟：期间 touch nuo/keep 就不关机（要在同一次开机里加训别的），否则自动关机
+for i in $(seq 90); do [ -f $T/nuo/keep ] && { log "有 keep，不关机"; exit 0; }; sleep 10; done
 sync; shutdown

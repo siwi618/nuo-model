@@ -1,5 +1,7 @@
 # 方法与出处（methodology）
 
+[English](methodology.en.md) | 中文
+
 Nuo 用到的方法逐条列出：哪些是本项目原创，哪些借用或参考了已有工作。实验过程和数字见 [lab_note.md](lab_note.md)。
 
 > **标注说明**

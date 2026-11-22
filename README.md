@@ -11,4 +11,6 @@
 - 情况覆盖表：[docs/情况覆盖表.md](docs/情况覆盖表.md)
 - 示例（自编练习角色，不进训练）：[examples/](examples/)
 - 考卷（永不训练）：[exam/](exam/)
+- 方法与出处（哪些原创、哪些参考了哪篇论文）：[methodology.md](methodology.md)
+- 实验记录：[lab_note.md](lab_note.md)
 - 卡片渲染脚本：`python3 scripts/render_card.py examples/梅姨.jsonl`

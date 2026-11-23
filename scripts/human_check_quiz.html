@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>台词耳朵测试</title>
+<!-- 人工核对评审的朋友版（2026-11-23）：单文件、离线可用、不加载外部字体（国内打不开 Google 字体）。
+     由 scripts/human_check_quiz_build.py 把 items.json 填进下面的 ITEMS 生成；答案只存在本机浏览器，结尾给结果码。 -->
+<style>
+/* 布局：一屏一题的小测验；顶部细进度条，题目卡居中，结尾一张结果卡（可打印） */
+:root{
+  --bg:#f4f4fa; --paper:#ffffff; --ink:#1f1d3a; --muted:#6a6888; --line:#dddcec;
+  --brand:#3d3aa8; --brand-soft:#e7e6fb; --sun:#ffc83d; --sun-soft:#fff3cf; --flag:#c8432f; --flag-soft:#fbe5e1;
+  --f-body:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC",sans-serif;
+  --f-line:"Songti SC","STSong","Noto Serif SC","SimSun",serif;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#13122a; --paper:#1d1c38; --ink:#ecebf7; --muted:#a3a1c4; --line:#34325a;
+  --brand:#9d9bff; --brand-soft:#2b2a5c; --sun:#ffd36a; --sun-soft:#3b3320; --flag:#ff8a76; --flag-soft:#4a2620; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.65;-webkit-text-size-adjust:100%}
+.wrap{max-width:720px;margin:0 auto;padding:20px max(16px,env(safe-area-inset-left)) 80px max(16px,env(safe-area-inset-right));display:flex;flex-direction:column;gap:16px}
+.bar{position:sticky;top:0;z-index:5;height:6px;background:var(--line);border-radius:0 0 4px 4px;overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--brand),var(--sun));width:0;transition:width .3s}
+h1{font-size:1.9rem;line-height:1.25;margin:0;letter-spacing:.02em}
+h2{font-size:1.2rem;margin:0}
+p{margin:0}
+.muted{color:var(--muted)}
+.box{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:14px}
+.hero{background:var(--brand);color:#fff;border:none}
+.hero .muted{color:#d9d8ff}
+.hero .stamp{align-self:flex-start;background:var(--sun);color:#2a2400;font-weight:700;font-size:.8rem;padding:3px 10px;border-radius:999px;letter-spacing:.08em}
+input[type=text]{font:inherit;font-size:1rem;padding:10px 14px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:100%}
+.btn{font:700 1rem var(--f-body);padding:12px 22px;border-radius:999px;border:none;background:var(--brand);color:#fff;cursor:pointer}
+.btn.ghost{background:transparent;color:var(--brand);border:1.5px solid var(--brand)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn:focus-visible,button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:3px solid var(--sun);outline-offset:2px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.row.between{justify-content:space-between}
+ul.tips{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:4px}
+dl.defs{margin:0;display:grid;grid-template-columns:max-content 1fr;gap:6px 12px;font-size:.92rem}
+dl.defs dt{font-weight:700}
+dl.defs dd{margin:0;color:var(--muted)}
+@media (max-width:520px){dl.defs{grid-template-columns:1fr;gap:0}dl.defs dd{margin-bottom:8px}}
+.qhead{display:flex;justify-content:space-between;align-items:baseline;font-size:.85rem;color:var(--muted)}
+.qhead b{color:var(--brand);font-size:1rem}
+.card{background:var(--bg);border-radius:12px;padding:12px 14px;display:grid;grid-template-columns:4.2em 1fr;gap:6px 10px;font-size:.92rem}
+.card .k{color:var(--muted);font-weight:700}
+.card .v{white-space:pre-wrap;min-width:0}
+.card .v.goal{background:var(--sun-soft);border-radius:8px;padding:6px 10px}
+@media (max-width:520px){.card{grid-template-columns:1fr;gap:0}.card .k{margin-top:8px}}
+details.full{font-size:.88rem}
+details.full summary{cursor:pointer;color:var(--brand)}
+details.full pre{white-space:pre-wrap;font:inherit;color:var(--muted);margin:8px 0 0}
+.lines{font-family:var(--f-line);font-size:1.15rem;line-height:1.85;border-left:4px solid var(--sun);padding:2px 0 2px 14px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:560px){.pair{grid-template-columns:1fr}}
+.opt{border:2px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0;background:var(--paper);cursor:pointer;text-align:left;font:inherit;color:inherit}
+.opt .tag{font-weight:700;color:var(--brand)}
+.opt .lines{border-left:none;padding:0;font-size:1.08rem}
+.opt[aria-pressed="true"]{border-color:var(--brand);background:var(--brand-soft)}
+.ask{font-weight:700;font-size:.95rem}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{font:500 .95rem var(--f-body);padding:8px 14px;border-radius:999px;border:1.5px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer}
+.chips.flags button[aria-pressed="true"]{background:var(--flag-soft);color:var(--flag);border-color:var(--flag)}
+.chips.pick button[aria-pressed="true"]{background:var(--brand);color:#fff;border-color:var(--brand)}
+.hint{font-size:.85rem;color:var(--muted)}
+textarea{font:inherit;font-size:.92rem;width:100%;min-height:2.6em;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);padding:8px 12px;resize:vertical}
+.result .type{font-size:1.7rem;font-weight:800;color:var(--brand);line-height:1.3}
+.meters{display:flex;flex-direction:column;gap:10px}
+.meter{display:grid;grid-template-columns:6.5em 1fr 3em;gap:10px;align-items:center;font-size:.92rem}
+.meter .track{height:10px;background:var(--line);border-radius:999px;overflow:hidden}
+.meter .track i{display:block;height:100%;background:var(--brand);border-radius:999px}
+.meter .num{text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+.code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;word-break:break-all;background:var(--bg);border:1px dashed var(--brand);border-radius:10px;padding:10px 12px;user-select:all}
+.answers{display:none}
+.toast{font-size:.88rem;color:var(--brand);min-height:1.4em}
+@media print{
+  :root{--bg:#fff;--paper:#fff;--ink:#000;--muted:#444;--line:#bbb;--brand:#2d2a8a;color-scheme:light}
+  .bar,.noprint{display:none!important}
+  .box{border:1px solid #bbb;break-inside:avoid}
+  .answers{display:block;font-size:10pt}
+  .answers table{border-collapse:collapse;width:100%}
+  .answers td,.answers th{border:1px solid #bbb;padding:2px 6px;text-align:left;vertical-align:top}
+}
+</style>
+</head>
+<body>
+<div class="bar noprint" id="bar"><i></i></div>
+<div class="wrap" id="app"></div>
+
+<script type="application/json" id="items">/*ITEMS*/</script>
+<script>
+const ITEMS = JSON.parse(document.getElementById("items").textContent);
+const FLAGS = ["心里话说出口","说漏秘密","称呼或人物错","出戏","语句不通","不合人设","口头禅滥用"];
+const DEFS = {
+  "心里话说出口":"卡上「心里想的」本该藏着，台词却把这个意思直接说了出来（换个说法、意思一样也算）。只是让人隐约感觉到，不算。",
+  "说漏秘密":"说出、承认或明显暗示了「不能说」「别说漏」里的事，自己先提起也算。",
+  "称呼或人物错":"叫错对方的名字或身份；提到卡里没有、又和卡冲突的人或事；把别人的话安到自己头上。",
+  "出戏":"冒出这个世界不该有的词（比如古代人说手机），或者遇到出戏的问题没按【世界】说的办法应对。",
+  "语句不通":"话本身读着不通：语病、搭配不当、用错词、前后矛盾、读不明白。只管通不通，不管像不像这个人。",
+  "不合人设":"话是通的，但口气、身份、见识、用词明显不像这个人（比如胆小的丫鬟顶撞主子、古人说现代腔）。只是平淡、没特色，不算。",
+  "口头禅滥用":"档案里的口头禅或例句被硬塞进去，或者一段里重复用。"
+};
+const KEY = "nuo-ear-test-v1";
+const SINGLES = ITEMS.filter(i => i.kind === "single"), PAIRS = ITEMS.filter(i => i.kind === "pair");
+const ORDER = [...SINGLES, ...PAIRS];
+let st = {name:"", ans:{}, cur:-1};
+try{ const s = JSON.parse(localStorage.getItem(KEY) || "null"); if(s && s.ans) st = s; }catch(e){}
+const save = () => { try{ localStorage.setItem(KEY, JSON.stringify(st)); }catch(e){} };
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const done = it => { const a = st.ans[it.id]; return !!a && (it.kind === "single" ? a.done !== undefined : !!a.pick); };
+
+function progress(){ const n = ORDER.filter(done).length; $("#bar i").style.width = (n / ORDER.length * 100) + "%"; return n; }
+
+function intro(){
+  const n = progress();
+  $("#app").innerHTML = `
+  <section class="box hero">
+    <span class="stamp">约 30 分钟 · 60 题</span>
+    <h1>台词耳朵测试</h1>
+    <p>你能一眼听出一句台词哪里不对劲吗？</p>
+    <p class="muted">说实话：这是在帮我的一个小项目看 AI 演员写的台词。你的判断会拿来检查另一个 AI 评审靠不靠谱。没有标准答案，按你自己的感觉来。做完会给你一张「台词耳朵」结果卡。</p>
+  </section>
+  <section class="box">
+    <h2>怎么玩</h2>
+    <ul class="tips">
+      <li>每题先看一张<b>角色卡</b>：谁在说、对谁说、什么场合、他要办成什么、心里在想什么。</li>
+      <li><b>第一关（40 题）</b>：看一段 AI 演员说的台词，挑出毛病，再判断事办没办成。</li>
+      <li><b>第二关（20 题）</b>：同一张卡两段台词，选哪段更像这个人会说的话。</li>
+      <li>只看内容。字数、句数、方括号里的表情标签（比如 [傲慢]）都不用管。</li>
+      <li>拿不准就按第一感觉，可以随时停下，下次打开接着做（要用同一个浏览器）。</li>
+    </ul>
+    <details><summary style="cursor:pointer;color:var(--brand);font-weight:700">先看看「毛病」都指什么</summary>
+      <dl class="defs" style="margin-top:10px">${FLAGS.map(f => `<dt>${f}</dt><dd>${DEFS[f]}</dd>`).join("")}</dl>
+    </details>
+    <label for="name" class="ask">你的名字（结果卡上用）</label>
+    <input type="text" id="name" maxlength="12" placeholder="比如：小王" value="${esc(st.name)}">
+    <div class="row">
+      <button class="btn" id="go">${n ? `接着做（已做 ${n} 题）` : "开始"}</button>
+      ${n === ORDER.length ? `<button class="btn ghost" id="toResult">直接看结果</button>` : ""}
+    </div>
+  </section>`;
+  $("#go").onclick = () => { st.name = $("#name").value.trim(); save(); const i = ORDER.findIndex(x => !done(x)); show(i < 0 ? 0 : i); };
+  const r = $("#toResult"); if(r) r.onclick = () => { st.name = $("#name").value.trim(); save(); result(); };
+}
+
+function cardHTML(c){
+  const sp = (c["说话人"] || "").split("\n");
+  const keep = sp.filter((l, i) => i === 0 || /^(一句话|性格|说话|不能说)：/.test(l)).join("\n");
+  const row = (k, v, cls="") => v ? `<div class="k">${k}</div><div class="v ${cls}">${esc(v)}</div>` : "";
+  const full = Object.entries(c).map(([k, v]) => `【${k}】\n${v}`).join("\n\n");
+  return `<div class="card">${row("说话人", keep)}${row("对方", c["对方"])}${row("场景", c["场景"])}${row("前文", c["前文"])}${row("目的", c["目的"], "goal")}</div>
+  <details class="full"><summary>看完整角色卡（世界设定、例句、想要、怕……）</summary><pre>${esc(full)}</pre></details>`;
+}
+const linesHTML = ls => ls.map(l => `<p>${esc(l)}</p>`).join("");
+
+function show(i){
+  st.cur = i; save(); progress();
+  const it = ORDER[i], a = st.ans[it.id] || {};
+  const single = it.kind === "single";
+  const no = single ? SINGLES.indexOf(it) + 1 : PAIRS.indexOf(it) + 1;
+  let body;
+  if(single){
+    const fl = a.flags || [];
+    body = `<div class="lines">${linesHTML(it.lines)}</div>
+    <p class="ask">这段台词有毛病吗？（可多选，没有就不点）</p>
+    <div class="chips flags">${FLAGS.map(f => `<button type="button" data-flag="${f}" aria-pressed="${fl.includes(f)}" title="${esc(DEFS[f])}">${f}</button>`).join("")}</div>
+    <details class="hint"><summary style="cursor:pointer">这几个毛病分别指什么？</summary><dl class="defs" style="margin-top:8px">${FLAGS.map(f => `<dt>${f}</dt><dd>${DEFS[f]}</dd>`).join("")}</dl></details>
+    <p class="ask">「目的」里要办成的事，办成了吗？</p>
+    <div class="chips pick">${[[0,"没去办"],[1,"往这方向推了，没办完"],[2,"办到了"]].map(([v,t]) => `<button type="button" data-done="${v}" aria-pressed="${a.done===v}">${t}</button>`).join("")}</div>
+    <p class="hint">用法是「接一句」时，往这方向推了就够了。</p>`;
+  } else {
+    body = `<p class="ask">哪段更像这个人在这个场景里会说的话？</p>
+    <div class="pair">
+      <button type="button" class="opt" data-pick="A" aria-pressed="${a.pick==="A"}"><span class="tag">A</span><span class="lines">${linesHTML(it.a)}</span></button>
+      <button type="button" class="opt" data-pick="B" aria-pressed="${a.pick==="B"}"><span class="tag">B</span><span class="lines">${linesHTML(it.b)}</span></button>
+    </div>
+    <div class="chips pick"><button type="button" data-pick="T" aria-pressed="${a.pick==="T"}">差不多，分不出</button></div>
+    <p class="hint">有明显毛病（说漏心事、叫错人、话不通、没去办事）的那段吃亏；确实不相上下才选「差不多」。</p>`;
+  }
+  $("#app").innerHTML = `<section class="box">
+    <div class="qhead"><span><b>${single ? "第一关" : "第二关"}</b> · 第 ${no} / ${single ? SINGLES.length : PAIRS.length} 题</span><span>总进度 ${progress()} / ${ORDER.length}</span></div>
+    ${cardHTML(it.card)}
+    ${body}
+    <details class="hint"><summary style="cursor:pointer">想补一句（可不填）</summary><textarea id="note" placeholder="拿不准、觉得卡本身有问题……">${esc(a.note || "")}</textarea></details>
+    <div class="row between">
+      <button type="button" class="btn ghost" id="prev">${i === 0 ? "回首页" : "上一题"}</button>
+      <button type="button" class="btn" id="next" ${done(it) ? "" : "disabled"}>${i === ORDER.length - 1 ? "看结果" : "下一题"}</button>
+    </div>
+    ${single ? `<p class="hint" style="text-align:right">选了「办成了吗」才能下一题</p>` : ""}
+  </section>`;
+  window.scrollTo(0, 0);
+  const keepNote = () => { const t = $("#note"); if(t){ st.ans[it.id] = {...(st.ans[it.id] || {}), note: t.value}; save(); } };
+  $("#note").oninput = keepNote;
+  $("#prev").onclick = () => { keepNote(); i === 0 ? intro() : show(i - 1); };
+  $("#next").onclick = () => { keepNote(); if(i === ORDER.length - 1){ const j = ORDER.findIndex(x => !done(x)); j < 0 ? result() : show(j); } else show(i + 1); };
+  $("#app").querySelectorAll("[data-flag],[data-done],[data-pick]").forEach(b => b.onclick = () => {
+    const x = {...(st.ans[it.id] || {})};
+    if(b.dataset.flag){ const s = new Set(x.flags || []); s.has(b.dataset.flag) ? s.delete(b.dataset.flag) : s.add(b.dataset.flag); x.flags = FLAGS.filter(f => s.has(f)); }
+    else if(b.dataset.done !== undefined){ x.done = +b.dataset.done; x.flags = x.flags || []; }
+    else x.pick = b.dataset.pick;
+    const t = $("#note"); if(t) x.note = t.value;
+    st.ans[it.id] = x; save();
+    refresh(it);   // 只改按钮状态，不重画整题（重画会跳回顶部）
+    if(b.dataset.pick && b.dataset.pick !== "T" && !single) setTimeout(() => { if(st.cur === i) $("#next").click(); }, 450);
+  });
+}
+
+function refresh(it){
+  const a = st.ans[it.id] || {}, app = $("#app");
+  app.querySelectorAll("[data-flag]").forEach(b => b.setAttribute("aria-pressed", String((a.flags || []).includes(b.dataset.flag))));
+  app.querySelectorAll("[data-done]").forEach(b => b.setAttribute("aria-pressed", String(a.done === +b.dataset.done)));
+  app.querySelectorAll("[data-pick]").forEach(b => b.setAttribute("aria-pressed", String(a.pick === b.dataset.pick)));
+  $("#next").disabled = !done(it);
+  const n = progress(), q = app.querySelector(".qhead span:last-child"); if(q) q.textContent = `总进度 ${n} / ${ORDER.length}`;
+}
+
+// 结果码：每题单评 7 位毛病 + 2 位办成（3 = 没答），两两 2 位（0 没答 1 A 2 B 3 差不多）；末尾 1 字节校验；Crockford base32
+const B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+function encode(){
+  const bits = [];
+  const put = (v, n) => { for(let k = n - 1; k >= 0; k--) bits.push((v >> k) & 1); };
+  for(const it of ORDER){
+    const a = st.ans[it.id] || {};
+    if(it.kind === "single"){ FLAGS.forEach(f => bits.push((a.flags || []).includes(f) ? 1 : 0)); put(a.done === undefined ? 3 : a.done, 2); }
+    else put({A:1, B:2, T:3}[a.pick] || 0, 2);
+  }
+  while(bits.length % 8) bits.push(0);
+  const bytes = []; for(let k = 0; k < bits.length; k += 8) bytes.push(parseInt(bits.slice(k, k + 8).join(""), 2));
+  bytes.push(bytes.reduce((s, b) => (s + b) & 255, 0));
+  const all = bytes.map(b => b.toString(2).padStart(8, "0")).join("");
+  let out = ""; for(let k = 0; k < all.length; k += 5) out += B32[parseInt(all.slice(k, k + 5).padEnd(5, "0"), 2)];
+  return out;
+}
+
+function profile(){
+  const S = SINGLES.filter(done), P = PAIRS.filter(done);
+  const per = S.length ? S.reduce((s, it) => s + (st.ans[it.id].flags || []).length, 0) / S.length : 0;
+  const share = f => S.length ? S.filter(it => (st.ans[it.id].flags || []).includes(f)).length / S.length : 0;
+  const strict = Math.min(1, per / 1.2);                 // 平均每条挑出 1.2 个毛病算满格
+  const grammar = Math.min(1, share("语句不通") / 0.5);
+  const subtext = Math.min(1, (share("心里话说出口") + share("说漏秘密")) / 0.35);
+  const decisive = P.length ? P.filter(it => st.ans[it.id].pick !== "T").length / P.length : 0;
+  const role = Math.min(1, (share("不合人设") + share("称呼或人物错")) / 0.3);
+  const dims = [["挑剔度", strict], ["语感雷达", grammar], ["潜台词嗅觉", subtext], ["人设洁癖", role], ["果断度", decisive]];
+  const top = [...dims].sort((a, b) => b[1] - a[1]);
+  const TYPES = {
+    "挑剔度":["金牌导演耳","一句台词能挑出三个毛病，演员见了你都紧张。"],
+    "语感雷达":["语文课代表耳","哪个词搭配别扭、哪句读着拗口，你一下就听出来。"],
+    "潜台词嗅觉":["读心术耳","角色心里那点小九九藏没藏住，逃不过你。"],
+    "人设洁癖":["选角导演耳","这话像不像这个人说的，你心里有一本账。"],
+    "果断度":["一锤定音耳","两段台词摆面前，你几乎不犹豫。"]
+  };
+  let [type, line] = TYPES[top[0][0]];
+  if(top[0][1] < 0.25){ type = "宽厚观众耳"; line = "你更愿意听演员把话说完，小毛病一笑而过。"; }
+  return {dims, type, line, per};
+}
+
+function result(){
+  progress();
+  const p = profile(), n = ORDER.filter(done).length, code = encode();
+  const name = st.name || "匿名";
+  const text = `台词耳朵测试 | ${name} | NUO1${code}`;
+  const rows = ORDER.map(it => { const a = st.ans[it.id] || {}; return `<tr><td>${it.id}</td><td>${it.kind === "single" ? ((a.flags || []).join("、") || "无") + " / 办成 " + (a.done ?? "—") : ({A:"A",B:"B",T:"差不多"}[a.pick] || "—")}</td><td>${esc(a.note || "")}</td></tr>`; }).join("");
+  $("#app").innerHTML = `
+  <section class="box result">
+    <span class="muted">${esc(name)} 的台词耳朵</span>
+    <div class="type">${p.type}</div>
+    <p>${p.line}</p>
+    <div class="meters">${p.dims.map(([k, v]) => `<div class="meter"><span>${k}</span><span class="track"><i style="width:${Math.round(v * 100)}%"></i></span><span class="num">${Math.round(v * 100)}</span></div>`).join("")}</div>
+    <p class="hint">按你自己的选择算的：平均每段挑出 ${p.per.toFixed(1)} 个毛病。这些分数只描述你的口味，没有对错。</p>
+  </section>
+  <section class="box">
+    <h2>把结果发给我</h2>
+    <p class="muted">下面这一行就是你的全部答案${n < ORDER.length ? `（还有 ${ORDER.length - n} 题没做，做完更好）` : ""}。点「复制」后微信发给我；或者截图这一页；在电脑上也可以点「打印」，打印或存成 PDF。</p>
+    <div class="code" id="code">${esc(text)}</div>
+    <div class="row noprint">
+      <button class="btn" id="copy">复制结果</button>
+      <button class="btn ghost" id="print">打印 / 存 PDF</button>
+      <button class="btn ghost" id="back">回去改答案</button>
+    </div>
+    <div class="toast noprint" id="toast"></div>
+  </section>
+  <section class="box answers"><h2>逐题答案</h2><table><tr><th>题</th><th>答案</th><th>补充</th></tr>${rows}</table></section>`;
+  $("#copy").onclick = async () => {
+    try{ await navigator.clipboard.writeText(text); $("#toast").textContent = "已复制，去微信粘贴发给我就行"; }
+    catch(e){ const r = document.createRange(); r.selectNodeContents($("#code")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); $("#toast").textContent = "已选中，长按或按 Ctrl+C 复制"; }
+  };
+  $("#print").onclick = () => window.print();
+  $("#back").onclick = () => show(0);
+}
+
+if(st.cur === -2) result(); else intro();
+</script>
+</body>
+</html>

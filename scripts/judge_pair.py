@@ -37,6 +37,15 @@ SYS = """你是戏剧台词的评审。下面是一张「戏卡」和两位演�
 只输出 JSON：{"更像": "甲" / "乙" / "差不多", "理由": "一两句话"}"""
 
 
+# v4（2026-11-23，人工核对后）：Ken 比两两时更看重口气，评审更看重硬伤 → 口气明显不对也算明显吃亏；表情标签可以拿来理解口气。
+SYS_V4 = SYS.replace(
+    "有硬伤（说漏心里话或秘密、叫错人、话说不通、没去办「要办成」的事）的一条明显吃亏。",
+    "有硬伤（说漏心里话或秘密、叫错人、话说不通、没去办「要办成」的事）的一条明显吃亏；"
+    "口气明显不对（例：安慰人的话听着像训斥、求人的话听着像下命令、该恭敬的顶撞起来）的一条也明显吃亏。"
+    "台词前方括号里的表情标签（如 [傲慢]）可以用来理解口气。")
+assert SYS_V4 != SYS
+PAIR_SYS = {"v1": SYS, "v4": SYS_V4}
+
 def seed_of(p):
     return re.search(r"-s(\d+)\.txt$", p).group(1)
 
@@ -51,6 +60,7 @@ def main():
     ap.add_argument("--both", action="store_true")
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--rule", default="v1", choices=["v1", "v4"], help="v4 = 加了「口气明显不对也吃亏」；结果分文件存")
     a = ap.parse_args()
     exam = {json.loads(t)["id"]: json.loads(t)["card"] for t in Path(a.exam).read_text(encoding="utf-8").splitlines() if t.strip()}
     A = {seed_of(p): parse_output(p) for p in expand(a.a)}
@@ -73,10 +83,10 @@ def main():
         sd, i, order = job
         x, y = (A[sd][i], B[sd][i]) if order == "AB" else (B[sd][i], A[sd][i])
         fmt = lambda ls: "\n".join(f"{k}. {s}" for k, s in enumerate(ls, 1)) or "（没写出任何台词）"
-        data, u = chat_json(SYS, f"{render_card(exam[i])}\n\n【台词甲】\n{fmt(x)}\n\n【台词乙】\n{fmt(y)}", model=MODEL, thinking=True)
+        data, u = chat_json(PAIR_SYS[a.rule], f"{render_card(exam[i])}\n\n【台词甲】\n{fmt(x)}\n\n【台词乙】\n{fmt(y)}", model=MODEL, thinking=True)
         pick = data.get("更像")
         win = {"甲": order[0], "乙": order[1]}.get(pick, "=")      # 选中的是 A 还是 B；= 差不多
-        rec = {"a": la, "b": lb, "seed": sd, "id": i, "order": order, "pick": pick, "win": win, "理由": data.get("理由", ""), "model": MODEL}
+        rec = {"a": la, "b": lb, "seed": sd, "id": i, "order": order, "pick": pick, "win": win, "理由": data.get("理由", ""), "model": MODEL, "rule": a.rule}
         with lock:
             with open(a.out, "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")

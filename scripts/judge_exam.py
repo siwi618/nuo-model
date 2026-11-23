@@ -9,6 +9,7 @@
   新标准：加 --rule v2 / v3，结果存另一个文件（如 judge-r3.jsonl），别和 v1 的混在一起。
   v3（2026-11-22）：「语句不通或不合人设」拆成两项；「像不像」改成 4 个分项（各 0–4，带每档说明），按权重 3/3/2/2 加总成 0–40。
   「心里话说出口」的定义和 v1 一样，说出口率可以和 v1 直接比。
+  v4（2026-11-23，人工核对后）：见 SYS_JUDGE_V4 上面的注释；problems 里用「该藏的说出口」，老定义另存「心里话说出口_旧」。
 然后：.venv/bin/python scripts/exam_stats.py --judge data/x/judge.jsonl --mode fixed,content,all v1=data/x/v1-pen v2a=...
 
 判过 = 下面「硬伤」一条都没有，且「办成」≥ 1。
@@ -88,6 +89,82 @@ D. 自然：像不像真人当场说的话。0 = 答非所问或像念稿；1 = 
  "理由": "一两句话，有硬伤就引用台词原话"}}"""
 
 
+# v4（2026-11-23，人工核对后改）：
+#   ①「心里话说出口」原文不动（和 v1 / v3 可比），另加「该藏的说出口」：办事最自然必要的话、只说一部分或明显收着说、世界规定的回法不算。
+#     problems / pass 用新的；旧的另存 rec["心里话说出口_旧"]、rec["pass_旧"]。
+#   ②「语句不通」门槛放低：读着别扭、搭配生硬、要停下来想才懂的也算（评审以前在理由里写「别扭」却不报）。
+#   ③ 表情标签可以拿来理解口气（人读的时候会看）。
+#   ④ 潜台词分项：故意掩饰（撒谎、否认、打圆场、违心地鼓励）不算「反着来」。
+HARD4 = ["该藏的说出口", "说漏秘密", "称呼或人物错", "出戏", "语句不通", "不合人设", "口头禅滥用"]
+
+SYS_JUDGE_V4 = """你是戏剧台词的评审。下面是一张「戏卡」和一位演员按它写的台词。只评内容，**不管格式**（句数、字数、括号动作另有程序检查，这里一律忽略）。
+台词前方括号里的表情标签（如 [傲慢]）不算格式问题，可以用来理解说话的口气（例：带 [冷笑] 的「您真是好心」可能是反话）。
+
+一、硬伤（逐项判 true / false；拿不准的不要报，但第 6 条「语句不通」按它自己的门槛判）：
+1. 心里话说出口：【目的】里「心里想的」是潜台词，只能从语气、话题、用词里透出来。台词把它的意思直接讲出来（换了说法、意思一样也算）= 是。只是让人隐约感觉到 = 否。卡里没写「心里想的」= 否。
+2. 该藏的说出口：台词把「心里想的」里这个人此刻不该、也不会当面讲的心思讲了出来（换了说法、意思一样也算）= 是。下面三种 = 否：
+   ① 不说这句就办不成「要办成」的事，说出来的正是办事最必要的理由（例：要叫人带伞，自然会说「待会儿要下雨」；要催客人趁早上路，自然会说「天黑了山路不好走」）。
+      只是顺嘴把心思讲出来或问出来、不说也照样能办成事的，不算①（例：心里想「这人八成在躲官府」，嘴上问「你是不是在躲官府？」= 是）；
+   ② 只说了一部分，或者明显收着说、软化了很多（例：心里觉得「这菜咸得没法吃」，嘴上只说「盐稍微重了点」）；
+   ③ 【世界】规定的回法。
+   卡里没写「心里想的」= 否。
+3. 说漏秘密：台词说出、承认或明显暗示了【说话人】「不能说」或【目的】「别说漏」里的事（包括自己先提起）= 是。卡里没有秘密 = 否。
+4. 称呼或人物错：叫错【对方】的名字或身份；凭空提到卡里没有、又和卡冲突的人或事；把别人的话安到自己头上 = 是。
+5. 出戏：主动用了世界之外的词或概念（游戏、AI、手机出现在古代等），或者对出戏的问题没有按【世界】的要求处理 = 是。
+6. 语句不通：句子本身说不通——语法错、搭配不当、用错词、生造词、前后矛盾、意思读不明白 = 是。读着别扭、搭配生硬、主语乱跳、要停下来想一下才明白意思的，也算是（不要求完全读不懂）。只看话本身通不通，不看像不像这个人。
+7. 不合人设：话是通的，但口气、身份、见识、用词明显不是【说话人】档案里的这个人会有的（例：胆小的丫鬟对主子出言顶撞、古人说现代腔、粗人满口书面语、安慰人的话听着像训斥）= 是。只是平淡、没特色不算。
+8. 口头禅滥用：档案里的口头禅 / 例句被硬塞、一段里重复用 = 是。
+
+二、办成：【目的】「要办成」的事。0 = 没去办（没提或办成了另一件事）；1 = 朝这个方向推进了，但没办完（「接一句」做到这一步就够了）；2 = 办到了。
+
+三、像不像：4 个分项，每项 0–4 分（整数），先看每档说明再定：
+A. 口气：像不像【说话人】这个人。0 = 像另一个人；1 = 中性，听不出是谁；2 = 有一两处像（某个词或某种口气）；3 = 通篇口气对，用词带这个人的身份和性格；4 = 一听就是他，换个人说不出这样的话。
+B. 潜台词：「心里想的」怎么处理（卡里没写「心里想的」时，看有没有透出这个人此刻的态度和情绪）。故意掩饰（撒谎、否认、打圆场、违心地鼓励或安慰）是藏心思的正当办法，不算「反着来」。0 = 直接说了出来，或者口气和心思对不上、又看不出是在掩饰（像演员没看懂卡）；1 = 完全没透出，只是平铺直叙地办事，或掩饰得生硬；2 = 隐约能感到，或掩饰得自然；3 = 从话题、语气、用词里自然透出（包括掩饰之中露出底下有事）；4 = 透得巧，点到为止又耐人回味。
+C. 具体：0 = 空话套话；1 = 泛泛，放到别的场景也能用；2 = 有一处具体（场景里的物、事、人、称呼）；3 = 多处具体、贴着这个场景；4 = 细节选得准，有画面感。
+D. 自然：像不像真人当场说的话。0 = 答非所问或像念稿；1 = 生硬、书面腔重；2 = 大体自然但有别扭处；3 = 自然顺口；4 = 很自然，节奏和语气像真在说话。
+硬伤和分项各管各的：有硬伤不代表分项一定低，按实际打。
+
+只输出 JSON：
+{"心里话说出口": true/false, "该藏的说出口": true/false, "说漏秘密": true/false, "称呼或人物错": true/false, "出戏": true/false,
+ "语句不通": true/false, "不合人设": true/false, "口头禅滥用": true/false, "办成": 0/1/2, "口气": 0-4, "潜台词": 0-4, "具体": 0-4, "自然": 0-4,
+ "理由": "一两句话，有硬伤就引用台词原话"}"""
+
+
+def system_for(rule):
+    if rule == "v4":
+        return SYS_JUDGE_V4
+    if rule == "v3":
+        return SYS_JUDGE_V3.replace("{{", "{").replace("}}", "}")
+    return SYS_JUDGE_T.format(inner_extra=RULES[rule])
+
+
+def judge_one(card, lines, rule, model=MODEL):
+    """评一条台词，返回（记录, token 用量）；记录里没有 file / id，调用方自己加。"""
+    body = "\n".join(f"{k}. {s}" for k, s in enumerate(lines, 1)) or "（没写出任何台词）"
+    data, u = chat_json(system_for(rule), f"{render_card(card)}\n\n【台词】\n{body}", model=model, thinking=True)
+    hard = HARD4 if rule == "v4" else HARD3 if rule == "v3" else HARD
+    probs = [k for k in hard if data.get(k) is True]
+    get_done = data.get("办成", 0)
+    done_v = get_done if isinstance(get_done, int) else 0
+    if done_v < 1:
+        probs.append("没办成")
+    rec = {"lines": "\n".join(lines), "pass": not probs, "problems": probs,
+           "办成": done_v, "像不像": data.get("像不像"), "理由": data.get("理由", ""), "model": model}
+    if rule in ("v3", "v4"):   # 像不像 = 加权和（0–40），分项另存；加总在程序里算，不让评审自己算
+        sub = {k: data.get(k) for k in LIKE3}
+        ok = all(isinstance(v, int) and 0 <= v <= 4 for v in sub.values())
+        rec["分项"] = sub
+        rec["像不像"] = sum(LIKE3[k] * v for k, v in sub.items()) if ok else None
+    if rule == "v4":
+        old = data.get("心里话说出口") is True
+        rec["心里话说出口_旧"] = old
+        rest = [p for p in probs if p != "该藏的说出口"]
+        rec["pass_旧"] = not rest and not old
+    if rule != "v1":
+        rec["rule"] = rule
+    return rec, u
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("out")
@@ -95,9 +172,8 @@ def main():
     ap.add_argument("--exam", default=str(HERE.parent / "exam" / "考卷.jsonl"))
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--seed", type=int, default=0, help="打乱顺序用")
-    ap.add_argument("--rule", default="v1", choices=sorted(RULES) + ["v3"], help="评审标准版本（见 RULES）；不同版本的结果要分文件存")
+    ap.add_argument("--rule", default="v1", choices=sorted(RULES) + ["v3", "v4"], help="评审标准版本（见 RULES）；不同版本的结果要分文件存")
     a = ap.parse_args()
-    sys_judge = SYS_JUDGE_V3.replace("{{", "{").replace("}}", "}") if a.rule == "v3" else SYS_JUDGE_T.format(inner_extra=RULES[a.rule])
 
     exam = {}
     for t in Path(a.exam).read_text(encoding="utf-8").splitlines():
@@ -127,22 +203,8 @@ def main():
 
     def one(item):
         fname, i, lines = item
-        body = "\n".join(f"{k}. {s}" for k, s in enumerate(lines, 1)) or "（没写出任何台词）"
-        data, u = chat_json(sys_judge, f"{render_card(exam[i])}\n\n【台词】\n{body}", model=MODEL, thinking=True)
-        probs = [k for k in (HARD3 if a.rule == "v3" else HARD) if data.get(k) is True]
-        get_done = data.get("办成", 0)
-        done_v = get_done if isinstance(get_done, int) else 0
-        if done_v < 1:
-            probs.append("没办成")
-        rec = {"file": fname, "id": i, "lines": "\n".join(lines), "pass": not probs, "problems": probs,
-               "办成": done_v, "像不像": data.get("像不像"), "理由": data.get("理由", ""), "model": MODEL}
-        if a.rule == "v3":   # 像不像 = 加权和（0–40），分项另存；加总在程序里算，不让评审自己算
-            sub = {k: data.get(k) for k in LIKE3}
-            ok = all(isinstance(v, int) and 0 <= v <= 4 for v in sub.values())
-            rec["分项"] = sub
-            rec["像不像"] = sum(LIKE3[k] * v for k, v in sub.items()) if ok else None
-        if a.rule != "v1":
-            rec["rule"] = a.rule
+        r, u = judge_one(exam[i], lines, a.rule)
+        rec = {"file": fname, "id": i, **r}
         with lock:
             with out.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(rec, ensure_ascii=False) + "\n")

@@ -10,6 +10,8 @@
   4. pairs：.venv/bin/python scripts/dpo_prep.py pairs → data/dpo/pairs.jsonl（{"prompt": [system, user], "chosen": 台词, "rejected": 台词, ...}）
 
 2026-11-22 第二轮迭代 DPO：--dir data/dpo2 换一个目录；cards --all = 池里所有 v3 没见过的卡（含第一轮那 300 张，重新采样是 Iterative RPO 的做法），由 dpoa-s1 生成。
+2026-11-23 第三轮（data/dpo3，dpo2-s1 生成，评审标准 v4）：--bad v4 = 坏例子认「该藏的说出口 / 语句不通 / 不合人设 / 没办成」（主攻语句不通）；
+  --min-subtext 3 = 好例子还要潜台词分项 ≥ 3（读 judge 记录的「分项」）。judge 记录没有 rule 字段的按 v1 处理（说出口叫「心里话说出口」）。
 """
 import argparse
 import json
@@ -49,18 +51,36 @@ def cards(n, take_all=False):
     print(f"cards.jsonl：{len(out)} 张（{dict(Counter(c['id'].split('-')[1] for c in out))}），可用池 {({k: len(v) for k, v in pools.items()})}")
 
 
-def good(j):   # 藏住且办成：没有任何硬伤，办成 = 2
-    return j["pass"] and j["办成"] == 2
+MIN_SUBTEXT = 0   # --min-subtext：好例子要求的潜台词分项下限（0 = 不看）
+
+
+def good(j):   # 藏住且办成：没有任何硬伤，办成 = 2；可再要求潜台词 ≥ MIN_SUBTEXT
+    if not (j["pass"] and j["办成"] == 2):
+        return False
+    if MIN_SUBTEXT:
+        v = (j.get("分项") or {}).get("潜台词")
+        return isinstance(v, int) and v >= MIN_SUBTEXT
+    return True
 
 
 BAD_MODE = "target"
 
 
-def bad(j):
-    """target（定向版）= 心里话说出口 / 没办成；any（加宽版，11-21 加）= 任何硬伤都算（含语句不通或不合人设，练习卡上占 55%）。"""
+def say_name(j):   # 各版评审标准里「说出口」硬伤的名字：v4 = 该藏的说出口（老定义另存在「心里话说出口_旧」，不进 problems）；没写 rule = v1
+    return "该藏的说出口" if j.get("rule", "v1") == "v4" else "心里话说出口"
+
+
+def why(j):
+    """这条坏例子是因为哪些硬伤坏的（空 = 不是坏例子）。
+    target（定向版）= 说出口 / 没办成；any（加宽版，11-21 加）= 任何硬伤；v4（第三轮，11-23 加）= 说出口 / 语句不通 / 不合人设 / 没办成。"""
     if BAD_MODE == "any":
-        return not j["pass"]
-    return "心里话说出口" in j["problems"] or "没办成" in j["problems"]
+        return list(j["problems"])
+    want = {say_name(j), "没办成"} | ({"语句不通", "不合人设"} if BAD_MODE == "v4" else set())
+    return [p for p in j["problems"] if p in want]
+
+
+def bad(j):
+    return bool(why(j))
 
 
 def pairs(use_ref, ref_judge=None, out_name="pairs.jsonl"):
@@ -93,7 +113,7 @@ def pairs(use_ref, ref_judge=None, out_name="pairs.jsonl"):
             user = render_card(cards[cid]["card"])
             out.append({"id": cid, "prompt": [{"role": "system", "content": SYS_LINES}, {"role": "user", "content": user}],
                         "chosen": ch, "rejected": rj["lines"], "chosen_src": src,
-                        "why": rj["problems"] if BAD_MODE == "any" else [p for p in rj["problems"] if p in ("心里话说出口", "没办成")]})
+                        "why": why(rj)})
             stat["对（" + src + "）"] += 1
             for p in out[-1]["why"]:
                 stat["坏：" + p] += 1
@@ -122,7 +142,8 @@ if __name__ == "__main__":
     ap.add_argument("cmd", choices=["cards", "pairs"])
     ap.add_argument("--n", type=int, default=300)
     ap.add_argument("--no-ref", action="store_true", help="没有好的生成时不拿原答案顶")
-    ap.add_argument("--bad", choices=["target", "any"], default="target", help="target = 定向版；any = 加宽版")
+    ap.add_argument("--bad", choices=["target", "any", "v4"], default="target", help="target = 定向版；any = 加宽版；v4 = 第三轮（说出口 / 语句不通 / 不合人设 / 没办成）")
+    ap.add_argument("--min-subtext", type=int, default=0, help="好例子还要潜台词分项 ≥ 这个数（v3 / v4 评审才有分项；0 = 不看）")
     ap.add_argument("--out", default="pairs.jsonl")
     ap.add_argument("--need-ref", action="store_true", help="只列出这一版要拿原答案顶、但原答案还没评过的卡，写成 ref-todo.txt（judge_exam 能直接评）")
     ap.add_argument("--ref-judge", default=None, help="原答案的评审结果（默认 <dir>/judge-ref.jsonl）；有就只用全过的原答案")
@@ -130,6 +151,7 @@ if __name__ == "__main__":
     ap.add_argument("--all", action="store_true", help="cards：取池里所有 v3 没见过的卡，忽略 --n")
     a = ap.parse_args()
     BAD_MODE = a.bad
+    MIN_SUBTEXT = a.min_subtext
     D = Path(a.dir)
     a.ref_judge = a.ref_judge or str(D / "judge-ref.jsonl")
     if a.cmd == "cards":

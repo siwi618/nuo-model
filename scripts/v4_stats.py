@@ -6,12 +6,21 @@
 
 用法（仓库根目录）：
   .venv/bin/python scripts/v4_stats.py data/cloud-v3/judge-r4.jsonl [--v3 data/cloud-v3/judge-r3.jsonl] [--base c3 --vs cdpo2s1,cdpoas1]
+「说出口·藏卡」（11-23 加）= 只在卡体检（exam/心思体检.json）判为「藏 / 部分」的卡上算的新定义说出口，分母也只算这些卡；
+体检里没有的卡（如练习卡）不进这一栏。--checkup 换体检文件。
 """
 import argparse
 import json
 import random
 import re
 from collections import defaultdict
+from pathlib import Path
+
+CHECKUP = {}   # 卡 id -> 体检类（藏 / 部分 / 无 / 存疑）
+
+
+def hide_card(r):
+    return CHECKUP.get(r["id"], {}).get("类") in ("藏", "部分")
 
 
 def version_of(fname):
@@ -26,6 +35,7 @@ def seed_of(fname):
 METRICS = [
     ("说出口·新", lambda r: "该藏的说出口" in r["problems"]),
     ("说出口·旧", lambda r: r.get("心里话说出口_旧", "心里话说出口" in r["problems"])),
+    ("说出口·藏卡", lambda r: ("该藏的说出口" in r["problems"]) if hide_card(r) else None),   # None = 这条不算
     ("全过·新", lambda r: r["pass"]),
     ("全过·旧", lambda r: r.get("pass_旧", r["pass"])),
     ("没办成", lambda r: "没办成" in r["problems"]),
@@ -50,7 +60,10 @@ def table(recs, title):
     print("  " + " | ".join(head))
     for v in sorted(by):
         rs = by[v]
-        cells = [v, str(len(rs))] + [f"{100 * sum(f(r) for r in rs) / len(rs):.1f}%" for _, f in METRICS]
+        cells = [v, str(len(rs))]
+        for _, f in METRICS:
+            xs = [x for x in map(f, rs) if x is not None]
+            cells.append(f"{100 * sum(xs) / len(xs):.1f}%" if xs else "—")
         for k in ("像不像", "潜台词"):
             xs = [num(r, k) for r in rs if num(r, k) is not None]
             cells.append(f"{sum(xs) / len(xs):.2f}" if xs else "—")
@@ -70,7 +83,7 @@ def paired(recs, base, other, title, n_boot=2000):
         bycard[c].append((a, b))
     rnd = random.Random(0)
     print(f"\n{title}：{other} 对 {base}（{len(pairs)} 对，{len(cards)} 张卡；差 = {other} − {base}，[95% 区间]）")
-    tests = [(m, (lambda f: lambda r: 100.0 * f(r))(f)) for m, f in METRICS] + \
+    tests = [(m, (lambda f: lambda r: None if f(r) is None else 100.0 * f(r))(f)) for m, f in METRICS] + \
             [("像不像/40", lambda r: num(r, "像不像")), ("潜台词/4", lambda r: num(r, "潜台词"))]
     for m, g in tests:
         def diff(sample):
@@ -96,7 +109,10 @@ def main():
     ap.add_argument("--v3", nargs="*", default=[], help="同样条目的 v3 评审结果，用来对照语句不通 / 说出口 / 像不像")
     ap.add_argument("--base", default="c3")
     ap.add_argument("--vs", default="cdpo2s1,cdpoas1")
+    ap.add_argument("--checkup", default=str(Path(__file__).resolve().parent.parent / "exam/心思体检.json"), help="卡体检文件（说出口·藏卡用）")
     a = ap.parse_args()
+    if Path(a.checkup).exists():
+        CHECKUP.update({k: v for k, v in json.load(open(a.checkup, encoding="utf-8")).items() if not k.startswith("_")})
     for path in a.judge:
         recs = [json.loads(t) for t in open(path, encoding="utf-8") if t.strip()]
         recs = [r for r in recs if r.get("rule") == "v4"]

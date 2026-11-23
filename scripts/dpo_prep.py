@@ -11,11 +11,12 @@
 
 2026-11-22 第二轮迭代 DPO：--dir data/dpo2 换一个目录；cards --all = 池里所有 v3 没见过的卡（含第一轮那 300 张，重新采样是 Iterative RPO 的做法），由 dpoa-s1 生成。
 2026-11-23 第三轮（data/dpo3，dpo2-s1 生成，评审标准 v4）：--bad v4 = 坏例子认「该藏的说出口 / 语句不通 / 不合人设 / 没办成」（主攻语句不通）；
-  --min-subtext 3 = 好例子还要潜台词分项 ≥ 3（读 judge 记录的「分项」）。judge 记录没有 rule 字段的按 v1 处理（说出口叫「心里话说出口」）。
+  --max-per-card 1 = 每张卡最多 1 对（11-23 Ken 定，197 对，规模同第二轮）；--min-subtext 3 = 好例子还要潜台词分项 ≥ 3（实测练习卡只有 1.5% 够格，没用）（读 judge 记录的「分项」）。judge 记录没有 rule 字段的按 v1 处理（说出口叫「心里话说出口」）。
 """
 import argparse
 import json
 import random
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -51,6 +52,7 @@ def cards(n, take_all=False):
     print(f"cards.jsonl：{len(out)} 张（{dict(Counter(c['id'].split('-')[1] for c in out))}），可用池 {({k: len(v) for k, v in pools.items()})}")
 
 
+MAX_PER_CARD = 0   # --max-per-card：每张卡最多几对（0 = 不限）；限了就在这张卡的坏例子、好例子里各随机挑（种子固定）
 MIN_SUBTEXT = 0   # --min-subtext：好例子要求的潜台词分项下限（0 = 不看）
 
 
@@ -64,6 +66,14 @@ def good(j):   # 藏住且办成：没有任何硬伤，办成 = 2；可再要�
 
 
 BAD_MODE = "target"
+
+SPK = re.compile(r"^([^:：\[\]（(]+)(\[[^\]]*\])?[:：]")
+
+
+def speaks_for_others(card, lines):
+    """台词里有别人开口的行（模型替对方说话，11-23 第三轮发现 2472 条里 148 条，评审漏判 3 条）。这种不能当好例子。"""
+    me = card["speaker"]["name"]
+    return any((m := SPK.match(ln)) and m.group(1).strip() != me for ln in lines.split("\n"))
 
 
 def say_name(j):   # 各版评审标准里「说出口」硬伤的名字：v4 = 该藏的说出口（老定义另存在「心里话说出口_旧」，不进 problems）；没写 rule = v1
@@ -104,10 +114,15 @@ def pairs(use_ref, ref_judge=None, out_name="pairs.jsonl"):
         if not b:
             continue
         ref_ok = use_ref and (ok_ref is None or cid in ok_ref)
-        chosen = [(j["lines"], "model") for j in g] or ([(cards[cid]["ref"], "ref")] if ref_ok else [])
+        g2 = [j for j in g if not speaks_for_others(cards[cid]["card"], j["lines"])]
+        stat["好例子替别人说话（去掉）"] += len(g) - len(g2)
+        chosen = [(j["lines"], "model") for j in g2] or ([(cards[cid]["ref"], "ref")] if ref_ok else [])
         if not chosen:
             stat["有坏没好（跳过）"] += 1
             continue
+        if MAX_PER_CARD:
+            b = rnd.sample(b, min(MAX_PER_CARD, len(b)))
+            chosen = rnd.sample(chosen, len(chosen))
         for k, rj in enumerate(b):                     # 每个坏例子配一个好例子（轮流用）
             ch, src = chosen[k % len(chosen)]
             user = render_card(cards[cid]["card"])
@@ -143,6 +158,7 @@ if __name__ == "__main__":
     ap.add_argument("--n", type=int, default=300)
     ap.add_argument("--no-ref", action="store_true", help="没有好的生成时不拿原答案顶")
     ap.add_argument("--bad", choices=["target", "any", "v4"], default="target", help="target = 定向版；any = 加宽版；v4 = 第三轮（说出口 / 语句不通 / 不合人设 / 没办成）")
+    ap.add_argument("--max-per-card", type=int, default=0, help="每张卡最多几对（0 = 不限；11-23 第三轮用 1）")
     ap.add_argument("--min-subtext", type=int, default=0, help="好例子还要潜台词分项 ≥ 这个数（v3 / v4 评审才有分项；0 = 不看）")
     ap.add_argument("--out", default="pairs.jsonl")
     ap.add_argument("--need-ref", action="store_true", help="只列出这一版要拿原答案顶、但原答案还没评过的卡，写成 ref-todo.txt（judge_exam 能直接评）")
@@ -152,6 +168,7 @@ if __name__ == "__main__":
     a = ap.parse_args()
     BAD_MODE = a.bad
     MIN_SUBTEXT = a.min_subtext
+    MAX_PER_CARD = a.max_per_card
     D = Path(a.dir)
     a.ref_judge = a.ref_judge or str(D / "judge-ref.jsonl")
     if a.cmd == "cards":

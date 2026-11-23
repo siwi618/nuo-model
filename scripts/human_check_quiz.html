@@ -131,7 +131,7 @@ function intro(){
       <li><b>第一关（40 题）</b>：看一段 AI 演员说的台词，挑出毛病，再判断事办没办成。</li>
       <li><b>第二关（20 题）</b>：同一张卡两段台词，选哪段更像这个人会说的话。</li>
       <li>只看内容。字数、句数、方括号里的表情标签（比如 [傲慢]）都不用管。</li>
-      <li>拿不准就按第一感觉，可以随时停下，下次打开接着做（要用同一个浏览器）。</li>
+      <li>拿不准就按第一感觉，可以随时停下，下次打开接着做（要用同一个浏览器）。做不完也没关系：随时点「先交卷」，做了多少就交多少。</li>
     </ul>
     <details><summary style="cursor:pointer;color:var(--brand);font-weight:700">先看看「毛病」都指什么</summary>
       <dl class="defs" style="margin-top:10px">${FLAGS.map(f => `<dt>${f}</dt><dd>${DEFS[f]}</dd>`).join("")}</dl>
@@ -140,7 +140,7 @@ function intro(){
     <input type="text" id="name" maxlength="12" placeholder="比如：小王" value="${esc(st.name)}">
     <div class="row">
       <button class="btn" id="go">${n ? `接着做（已做 ${n} 题）` : "开始"}</button>
-      ${n === ORDER.length ? `<button class="btn ghost" id="toResult">直接看结果</button>` : ""}
+      ${n === ORDER.length ? `<button class="btn ghost" id="toResult">直接看结果</button>` : n ? `<button class="btn ghost" id="toResult">先交卷，看结果（做多少算多少）</button>` : ""}
     </div>
   </section>`;
   $("#go").onclick = () => { st.name = $("#name").value.trim(); save(); const i = ORDER.findIndex(x => !done(x)); show(i < 0 ? 0 : i); };
@@ -190,12 +190,16 @@ function show(i){
       <button type="button" class="btn ghost" id="prev">${i === 0 ? "回首页" : "上一题"}</button>
       <button type="button" class="btn" id="next" ${done(it) ? "" : "disabled"}>${i === ORDER.length - 1 ? "看结果" : "下一题"}</button>
     </div>
-    ${single ? `<p class="hint" style="text-align:right">选了「办成了吗」才能下一题</p>` : ""}
+    <div class="row between">
+      <span class="hint">${single ? "选了「办成了吗」才能下一题" : ""}</span>
+      <button type="button" class="btn ghost" id="submitNow" style="padding:6px 14px;font-size:.85rem">先交卷，看结果</button>
+    </div>
   </section>`;
   window.scrollTo(0, 0);
   const keepNote = () => { const t = $("#note"); if(t){ st.ans[it.id] = {...(st.ans[it.id] || {}), note: t.value}; save(); } };
   $("#note").oninput = keepNote;
   $("#prev").onclick = () => { keepNote(); i === 0 ? intro() : show(i - 1); };
+  $("#submitNow").onclick = () => { keepNote(); result(); };
   $("#next").onclick = () => { keepNote(); if(i === ORDER.length - 1){ const j = ORDER.findIndex(x => !done(x)); j < 0 ? result() : show(j); } else show(i + 1); };
   $("#app").querySelectorAll("[data-flag],[data-done],[data-pick]").forEach(b => b.onclick = () => {
     const x = {...(st.ans[it.id] || {})};
@@ -275,7 +279,7 @@ function result(){
   </section>
   <section class="box">
     <h2>把结果发给我</h2>
-    <p class="muted">下面这一行就是你的全部答案${n < ORDER.length ? `（还有 ${ORDER.length - n} 题没做，做完更好）` : ""}。点「复制」后微信发给我；或者截图这一页；在电脑上也可以点「打印」，打印或存成 PDF。</p>
+    <p class="muted">下面这一行就是你的全部答案${n < ORDER.length ? `（还有 ${ORDER.length - n} 题没做也没关系，做多少算多少；想接着做，点「回去改答案」）` : ""}。点「复制」后微信发给我；或者截图这一页；在电脑上也可以点「打印」，打印或存成 PDF。</p>
     <div class="code" id="code">${esc(text)}</div>
     <div class="row noprint">
       <button class="btn" id="copy">复制结果</button>
@@ -290,7 +294,7 @@ function result(){
     catch(e){ const r = document.createRange(); r.selectNodeContents($("#code")); const s = getSelection(); s.removeAllRanges(); s.addRange(r); $("#toast").textContent = "已选中，长按或按 Ctrl+C 复制"; }
   };
   $("#print").onclick = () => window.print();
-  $("#back").onclick = () => show(0);
+  $("#back").onclick = () => { const j = ORDER.findIndex(x => !done(x)); show(j < 0 ? 0 : j); };
 }
 
 if(st.cur === -2) result(); else intro();

@@ -1,6 +1,7 @@
 """「哪条更顺」盲测（2026-11-24）：定 dpo3-s2 之前，Ken 用耳朵核对第三轮的「语句不通」下降是不是真的。
 
 抽 20 对 dpo3-s2 vs dpo2-s1，同卡同种子（公开卷 12 + 专项卷 8，每张卡最多 1 对，两条台词不一样），随机左右。
+11-24 第四轮：--a cdpo4s1（dpo4-s1 vs dpo2-s1，同长度）。
 页面（单文件、离线）只有卡和台词，没有版本名、没有评审判断；答案对照另存 key（只在本地）。
 Ken 每对选「A 更顺 / B 更顺 / 差不多」，做完给一行结果码 SMOOTH1|…，交给 smooth_check_score.py。
 
@@ -36,12 +37,15 @@ def nchar(t):
 
 
 def main():
+    global A_VER
     ap = argparse.ArgumentParser()
     ap.add_argument("out")
     ap.add_argument("--maxdiff", type=float, default=None)
     ap.add_argument("--exclude", nargs="*", default=[])
     ap.add_argument("--seed", type=int, default=20261124)
+    ap.add_argument("--a", default=A_VER, help="和 dpo2-s1 比的版本标签（默认 cdpo3s2；11-24 第四轮用 cdpo4s1）")
     arg = ap.parse_args()
+    A_VER = arg.a
     out = Path(arg.out)
     out.mkdir(parents=True, exist_ok=True)
     rnd = random.Random(arg.seed if arg.maxdiff is None else arg.seed + 1)

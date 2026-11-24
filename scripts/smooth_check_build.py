@@ -1,7 +1,7 @@
 """「哪条更顺」盲测（2026-11-24）：定 dpo3-s2 之前，Ken 用耳朵核对第三轮的「语句不通」下降是不是真的。
 
 抽 20 对 dpo3-s2 vs dpo2-s1，同卡同种子（公开卷 12 + 专项卷 8，每张卡最多 1 对，两条台词不一样），随机左右。
-11-24 第四轮：--a cdpo4s1（dpo4-s1 vs dpo2-s1，同长度）。
+11-24 第四轮：--a cdpo4s1（dpo4-s1 vs dpo2-s1，同长度）。解码试验：--a cdpo2s1t5 --npub 20 --nsp 0（同一模型温度 0.5 vs 0.7）。
 页面（单文件、离线）只有卡和台词，没有版本名、没有评审判断；答案对照另存 key（只在本地）。
 Ken 每对选「A 更顺 / B 更顺 / 差不多」，做完给一行结果码 SMOOTH1|…，交给 smooth_check_score.py。
 
@@ -43,6 +43,8 @@ def main():
     ap.add_argument("--maxdiff", type=float, default=None)
     ap.add_argument("--exclude", nargs="*", default=[])
     ap.add_argument("--seed", type=int, default=20261124)
+    ap.add_argument("--npub", type=int, default=12)
+    ap.add_argument("--nsp", type=int, default=8, help="专项卷几对（只考了公开卷的版本用 --npub 20 --nsp 0）")
     ap.add_argument("--a", default=A_VER, help="和 dpo2-s1 比的版本标签（默认 cdpo3s2；11-24 第四轮用 cdpo4s1）")
     arg = ap.parse_args()
     A_VER = arg.a
@@ -52,7 +54,7 @@ def main():
     used = {k["card"] for f in arg.exclude for k in json.loads(Path(f).read_text(encoding="utf-8"))}
     exams = {"pub": load_exam(ROOT / "exam" / "考卷.jsonl"), "sp": load_exam(ROOT / "exam" / "专项-心里话.jsonl")}
     items, key = [], []
-    for fn, ex, n in [("judge-r4.jsonl", "pub", 12), ("judge-sp9-r4.jsonl", "sp", 8)]:
+    for fn, ex, n in [("judge-r4.jsonl", "pub", arg.npub), ("judge-sp9-r4.jsonl", "sp", arg.nsp)]:
         cell = {}
         for t in (V3 / fn).read_text(encoding="utf-8").splitlines():
             r = json.loads(t)

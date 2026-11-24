@@ -95,7 +95,7 @@ def judge(out):
     for _, u in res:
         use["in"] += u.get("prompt_tokens", 0)
         use["out"] += u.get("completion_tokens", 0)
-    (out / "judge-v51.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r, _ in res), encoding="utf-8")
+    (out / "judge-v52.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r, _ in res), encoding="utf-8")
     print(f"评完 {len(res)} 条，token 入 {use['in']} 出 {use['out']}")
 
 
@@ -224,7 +224,7 @@ if __name__ == "__main__":
     ap.add_argument("out")
     ap.add_argument("--exclude", nargs="*", default=[])
     ap.add_argument("--seed", type=int, default=20261124)
-    ap.add_argument("--judge", action="store_true", help="对已生成的 key.json 跑评审 v5.1")
+    ap.add_argument("--judge", action="store_true", help="对已生成的 key.json 跑评审 v5.2（旧结果 judge-v51.jsonl 保留）")
     a = ap.parse_args()
     o = Path(a.out)
     o.mkdir(parents=True, exist_ok=True)

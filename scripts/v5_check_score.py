@@ -1,6 +1,6 @@
 """评审 v5.1 人工核对打分（2026-11-24）：Ken 的逐句标注 vs 评审 v5.1（同一批 40 条），再和 v4 的整条判断比。
 
-用法：.venv/bin/python scripts/v5_check_score.py data/human-check/v5 Ken.txt（结果码那一行存成的文件，放在目录里）
+用法：.venv/bin/python scripts/v5_check_score.py data/human-check/v5 Ken.txt [judge-v52.jsonl]（结果码那一行存成的文件，放在目录里；第三个参数换评审结果文件，默认 judge-v51.jsonl）
 句子标签：0 = 没问题，1 = 轻，2 = 重（评审一句有几处毛病时取最重的）。
 """
 import json
@@ -28,7 +28,7 @@ def main():
     _, n_seen, marks, notes = code.split("|", 3)
     marks, notes = json.loads(marks), json.loads(notes)
     key = {k["id"]: k for k in json.loads((d / "key.json").read_text(encoding="utf-8"))}
-    J = {r["id"]: r for r in map(json.loads, (d / "judge-v51.jsonl").read_text(encoding="utf-8").splitlines())}
+    J = {r["id"]: r for r in map(json.loads, (d / (sys.argv[3] if len(sys.argv) > 3 else "judge-v51.jsonl")).read_text(encoding="utf-8").splitlines())}
     v4 = {}
     for fn in ["judge-r4.jsonl", "judge-sp9-r4.jsonl"]:
         for t in (ROOT / "data" / "cloud-v3" / fn).read_text(encoding="utf-8").splitlines():

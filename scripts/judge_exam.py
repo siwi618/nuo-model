@@ -10,6 +10,7 @@
   v3（2026-11-22）：「语句不通或不合人设」拆成两项；「像不像」改成 4 个分项（各 0–4，带每档说明），按权重 3/3/2/2 加总成 0–40。
   「心里话说出口」的定义和 v1 一样，说出口率可以和 v1 直接比。
   v4（2026-11-23，人工核对后）：见 SYS_JUDGE_V4 上面的注释；problems 里用「该藏的说出口」，老定义另存「心里话说出口_旧」。
+  v5（2026-11-24，分三层）：见 SYS_JUDGE_V5 上面的注释；逐处圈毛病（句号 + 原话 + 类型 + 轻重），--suggest 加改法。
 然后：.venv/bin/python scripts/exam_stats.py --judge data/x/judge.jsonl --mode fixed,content,all v1=data/x/v1-pen v2a=...
 
 判过 = 下面「硬伤」一条都没有，且「办成」≥ 1。
@@ -130,6 +131,129 @@ D. 自然：像不像真人当场说的话。0 = 答非所问或像念稿；1 = 
  "理由": "一两句话，有硬伤就引用台词原话"}"""
 
 
+# v5（2026-11-24，Ken 提「圈错扣分 + 长度分 + 说好加分」，按三层落地）：
+#   第 1 层 门槛（长度）：程序算，评审不管 —— rec["字数"]、rec["句数"]，和卡的上限比在统计脚本里做。
+#   第 2 层 硬伤：评审逐处圈出（句号 + 原话 + 类型 + 轻重），按「每句出错率」报，不再「有一句别扭整条算」。
+#           新增类型「用词难懂」（生造词 / 看不懂的行话）和「逻辑不对」（常识错、和卡或前文对不上）；
+#           「不合人设」写明包括对对方的态度和档案里的关系不符（11-24 Ken 盲测旁注大多是这两类 + 人设）。
+#           v4 的「语句不通」≈ v5「语句不通」+「用词难懂」，和 v4 比时合起来看。
+#   第 3 层 质量：v4 的 4 个分项不变；另记「亮点」（必须引原话），只记录、不计分。
+#   --suggest：每处毛病加「改法」（只在人工核对、造好例子时开；平时不开省钱）。
+#   程序核对引文：原话不在台词里的毛病照样保留，但标 quote_ok=false，统计「引文对不上」的比例。
+HARD5 = ["该藏的说出口", "说漏秘密", "称呼或人物错", "出戏", "语句不通", "用词难懂", "逻辑不对", "不合人设", "口头禅滥用"]
+SENT_END = "。！？!?"   # 省略号多是停顿，不切
+
+
+def split_sents(text):
+    """一段话按句末标点切句（标点留在句尾；引号 / 括号跟着前一句）。"""
+    out, cur = [], ""
+    for i, ch in enumerate(text):
+        cur += ch
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if ch in SENT_END and nxt not in SENT_END and nxt not in "」』”’）)":
+            out.append(cur)
+            cur = ""
+        elif ch in "」』”’）)" and cur[-2:-1] and cur[-2] in SENT_END:
+            out.append(cur)
+            cur = ""
+    if cur.strip():
+        out.append(cur)
+    return [x.strip() for x in out if x.strip()]
+
+
+def number_lines(lines):
+    """台词每句编号：返回（给评审看的文字, 句子列表）。前缀「名字[表情]:」不算句子。"""
+    shown, sents = [], []
+    for ln in lines:
+        head, sep, body = ln.partition(":")
+        if not sep:
+            head, sep, body = ln.partition("：")
+        if not sep:
+            head, body = "", ln
+        parts = split_sents(body.strip()) or [body.strip()]
+        tagged = []
+        for x in parts:
+            sents.append(x)
+            tagged.append(f"〔{len(sents)}〕{x}")
+        shown.append((head.strip() + ": " if sep else "") + "".join(tagged))
+    return "\n".join(shown), sents
+
+
+SYS_JUDGE_V5 = """你是戏剧台词的评审。下面是一张「戏卡」和一位演员按它写的台词。只评内容，**不管格式**（句数、字数、括号动作另有程序检查，这里一律忽略）。
+台词已经按句编了号（〔1〕〔2〕…）。台词前方括号里的表情标签（如 [傲慢]）可以用来理解说话的口气。
+
+一、毛病：逐句读，把每一处毛病圈出来。每处写：哪一句（句号）、原话（从台词里**一字不改地照抄**出错的那几个字到那一句，越短越好）、类型、轻重{suggest_rule}。
+同一句可以有几处毛病；没有毛病就给空列表。拿不准的不要报，但「语句不通」按它自己的门槛判。
+类型（只能用下面这些名字）：
+- 语句不通：语法错、搭配不当、主语乱跳、读着别扭、要停下来想一下才明白意思。只看话本身通不通。
+- 用词难懂：生造的词、玩家看不懂的行话 / 口头禅 / 称呼（卡里也没解释），读到这里会问「这是啥」。
+- 逻辑不对：说的和常识对不上（例：凉茶冒热气），前后矛盾，或者和卡里写的事实、前文对不上。
+- 不合人设：口气、态度、身份、见识不像【说话人】档案里的这个人（例：心软的人说话像在拿人情要挟、敬重师父的徒弟对师父像下命令、古人说现代腔、粗人满口书面语、安慰的话听着像训斥）。只是平淡、没特色不算。
+- 称呼或人物错：叫错【对方】的名字或身份；凭空提到卡里没有、又和卡冲突的人或事；把别人的话安到自己头上。
+- 出戏：主动用了世界之外的词或概念，或者对出戏的问题没有按【世界】的要求处理。
+- 口头禅滥用：档案里的口头禅 / 例句被硬塞、一段里重复用。
+- 说漏秘密：说出、承认或明显暗示了【说话人】「不能说」或【目的】「别说漏」里的事（包括自己先提起）。
+- 该藏的说出口：把「心里想的」里这个人此刻不该、也不会当面讲的心思讲了出来（换了说法、意思一样也算）。下面三种不算：
+  ① 不说这句就办不成「要办成」的事，说出来的正是办事最必要的理由（例：要叫人带伞，自然会说「待会儿要下雨」）；只是顺嘴把心思讲出来或问出来、不说也照样能办成的，不算①；
+  ② 只说了一部分，或者明显收着说、软化了很多；③【世界】规定的回法。卡里没写「心里想的」就不会有这一类。
+轻重：轻 = 能懂、小瑕疵，一般读者可能注意不到；重 = 明显错，读者会卡住、出戏，或者人设 / 秘密 / 心思上的错。
+
+二、心里话说出口（旧定义，整段判一次）：「心里想的」的意思被直接讲出来（换了说法、意思一样也算）= true；只是隐约透出 = false；卡里没写「心里想的」= false。
+
+三、办成：【目的】「要办成」的事。0 = 没去办（没提或办成了另一件事）；1 = 朝这个方向推进了，但没办完（「接一句」做到这一步就够了）；2 = 办到了。
+
+四、像不像：4 个分项，每项 0–4 分（整数），先看每档说明再定：
+A. 口气：像不像【说话人】这个人。0 = 像另一个人；1 = 中性，听不出是谁；2 = 有一两处像（某个词或某种口气）；3 = 通篇口气对，用词带这个人的身份和性格；4 = 一听就是他，换个人说不出这样的话。
+B. 潜台词：「心里想的」怎么处理（卡里没写「心里想的」时，看有没有透出这个人此刻的态度和情绪）。故意掩饰（撒谎、否认、打圆场、违心地鼓励或安慰）是藏心思的正当办法，不算「反着来」。0 = 直接说了出来，或者口气和心思对不上、又看不出是在掩饰；1 = 完全没透出，只是平铺直叙地办事，或掩饰得生硬；2 = 隐约能感到，或掩饰得自然；3 = 从话题、语气、用词里自然透出（包括掩饰之中露出底下有事）；4 = 透得巧，点到为止又耐人回味。
+C. 具体：0 = 空话套话；1 = 泛泛，放到别的场景也能用；2 = 有一处具体（场景里的物、事、人、称呼）；3 = 多处具体、贴着这个场景；4 = 细节选得准，有画面感。
+D. 自然：像不像真人当场说的话。0 = 答非所问或像念稿；1 = 生硬、书面腔重；2 = 大体自然但有别扭处；3 = 自然顺口；4 = 很自然，节奏和语气像真在说话。
+毛病和分项各管各的，按实际打。
+
+五、亮点：特别出彩、换个演员写不出来的地方（一句俏皮话、一个准的细节、一处藏得巧的心思），照抄原话、写好在哪。没有就给空列表，不要硬找。
+
+只输出 JSON：
+{{"毛病": [{{"句": 1, "原话": "…", "类型": "语句不通", "轻重": "轻"{suggest_field}}}],
+ "心里话说出口": true/false, "办成": 0/1/2, "口气": 0-4, "潜台词": 0-4, "具体": 0-4, "自然": 0-4,
+ "亮点": [{{"句": 1, "原话": "…", "好在哪": "…"}}], "理由": "一两句话总评"}}"""
+
+
+def system_v5(suggest):
+    return SYS_JUDGE_V5.format(
+        suggest_rule="、改法（只改这一处、一句话以内，改完要符合人设和卡）" if suggest else "",
+        suggest_field=', "改法": "…"' if suggest else "")
+
+
+def judge_one_v5(card, lines, model=MODEL, suggest=False):
+    shown, sents = number_lines(lines)
+    flat = "".join(sents)
+    if not sents:
+        shown = "（没写出任何台词）"
+    data, u = chat_json(system_v5(suggest), f"{render_card(card)}\n\n【台词】\n{shown}", model=model, thinking=True)
+    errs = []
+    for e in data.get("毛病") or []:
+        if not isinstance(e, dict) or e.get("类型") not in HARD5:
+            continue
+        q = str(e.get("原话", "")).strip()
+        e["quote_ok"] = bool(q) and q.strip("…") in flat
+        errs.append(e)
+    probs = [k for k in HARD5 if any(e["类型"] == k for e in errs)]
+    get_done = data.get("办成", 0)
+    done_v = get_done if isinstance(get_done, int) else 0
+    if done_v < 1:
+        probs.append("没办成")
+    bad_sents = {e.get("句") for e in errs if isinstance(e.get("句"), int)}
+    sub = {k: data.get(k) for k in LIKE3}
+    ok = all(isinstance(v, int) and 0 <= v <= 4 for v in sub.values())
+    rec = {"lines": "\n".join(lines), "pass": not probs, "problems": probs, "办成": done_v,
+           "像不像": sum(LIKE3[k] * v for k, v in sub.items()) if ok else None, "分项": sub,
+           "字数": sum(len(x) for x in sents), "句数": len(sents),
+           "毛病": errs, "毛病句数": len(bad_sents & set(range(1, len(sents) + 1))),
+           "重": sum(e.get("轻重") == "重" for e in errs), "轻": sum(e.get("轻重") == "轻" for e in errs),
+           "亮点": data.get("亮点") or [], "心里话说出口_旧": data.get("心里话说出口") is True,
+           "理由": data.get("理由", ""), "model": model, "rule": "v5" + ("s" if suggest else "")}
+    return rec, u
+
+
 def system_for(rule):
     if rule == "v4":
         return SYS_JUDGE_V4
@@ -138,8 +262,10 @@ def system_for(rule):
     return SYS_JUDGE_T.format(inner_extra=RULES[rule])
 
 
-def judge_one(card, lines, rule, model=MODEL):
+def judge_one(card, lines, rule, model=MODEL, suggest=False):
     """评一条台词，返回（记录, token 用量）；记录里没有 file / id，调用方自己加。"""
+    if rule == "v5":
+        return judge_one_v5(card, lines, model, suggest)
     body = "\n".join(f"{k}. {s}" for k, s in enumerate(lines, 1)) or "（没写出任何台词）"
     data, u = chat_json(system_for(rule), f"{render_card(card)}\n\n【台词】\n{body}", model=model, thinking=True)
     hard = HARD4 if rule == "v4" else HARD3 if rule == "v3" else HARD
@@ -172,7 +298,10 @@ def main():
     ap.add_argument("--exam", default=str(HERE.parent / "exam" / "考卷.jsonl"))
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--seed", type=int, default=0, help="打乱顺序用")
-    ap.add_argument("--rule", default="v1", choices=sorted(RULES) + ["v3", "v4"], help="评审标准版本（见 RULES）；不同版本的结果要分文件存")
+    ap.add_argument("--rule", default="v1", choices=sorted(RULES) + ["v3", "v4", "v5"], help="评审标准版本（见 RULES）；不同版本的结果要分文件存")
+    ap.add_argument("--suggest", action="store_true", help="v5：每处毛病加「改法」")
+    ap.add_argument("--limit", type=int, default=0, help="只评打乱后的前 N 条（试跑用）")
+    ap.add_argument("--only", default="", help="只评这些卡（逗号分隔 id）")
     a = ap.parse_args()
 
     exam = {}
@@ -194,7 +323,12 @@ def main():
             for i, lines in parse_output(p).items():
                 if i in exam and (Path(p).name, i, "\n".join(lines)) not in done:
                     todo.append((Path(p).name, i, lines))
+    if a.only:
+        keep = set(a.only.split(","))
+        todo = [t for t in todo if t[1] in keep]
     random.Random(a.seed).shuffle(todo)
+    if a.limit:
+        todo = todo[:a.limit]
     print(f"要评 {len(todo)} 条（已评 {len(done)} 条跳过），模型 {MODEL}，评审标准 {a.rule}")
 
     lock = threading.Lock()
@@ -203,7 +337,7 @@ def main():
 
     def one(item):
         fname, i, lines = item
-        r, u = judge_one(exam[i], lines, a.rule)
+        r, u = judge_one(exam[i], lines, a.rule, suggest=a.suggest)
         rec = {"file": fname, "id": i, **r}
         with lock:
             with out.open("a", encoding="utf-8") as f:

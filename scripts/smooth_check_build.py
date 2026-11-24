@@ -5,7 +5,10 @@
 Ken 每对选「A 更顺 / B 更顺 / 差不多」，做完给一行结果码 SMOOTH1|…，交给 smooth_check_score.py。
 
 用法（仓库根目录）：.venv/bin/python scripts/smooth_check_build.py data/human-check/smooth
+同长度版（11-24 第 2 次）：... smooth_check_build.py data/human-check/smooth-eqlen --maxdiff 0.15 --exclude data/human-check/smooth/key.json
+  --maxdiff：两条字数差 / 较长那条 < 这个比例才抽（字数不算【表情】和空白）；--exclude：优先不用这些 key 里出过的卡（不够再用）。
 """
+import argparse
 import html
 import json
 import random
@@ -28,10 +31,21 @@ def ver_seed(fname):
     return lab, int(re.search(r"-s(\d+)\.txt$", fname).group(1))
 
 
+def nchar(t):
+    return len(re.sub(r"【[^】]*】|\s", "", t))
+
+
 def main():
-    out = Path(sys.argv[1])
+    ap = argparse.ArgumentParser()
+    ap.add_argument("out")
+    ap.add_argument("--maxdiff", type=float, default=None)
+    ap.add_argument("--exclude", nargs="*", default=[])
+    ap.add_argument("--seed", type=int, default=20261124)
+    arg = ap.parse_args()
+    out = Path(arg.out)
     out.mkdir(parents=True, exist_ok=True)
-    rnd = random.Random(20261124)
+    rnd = random.Random(arg.seed if arg.maxdiff is None else arg.seed + 1)
+    used = {k["card"] for f in arg.exclude for k in json.loads(Path(f).read_text(encoding="utf-8"))}
     exams = {"pub": load_exam(ROOT / "exam" / "考卷.jsonl"), "sp": load_exam(ROOT / "exam" / "专项-心里话.jsonl")}
     items, key = [], []
     for fn, ex, n in [("judge-r4.jsonl", "pub", 12), ("judge-sp9-r4.jsonl", "sp", 8)]:
@@ -43,7 +57,12 @@ def main():
                 cell[(v, r["id"], s)] = r
         cands = [(c, s) for (v, c, s) in cell if v == A_VER and (B_VER, c, s) in cell
                  and cell[(A_VER, c, s)]["lines"].strip() != cell[(B_VER, c, s)]["lines"].strip()]
+        if arg.maxdiff is not None:
+            cands = [(c, s) for c, s in cands
+                     if abs(nchar(cell[(A_VER, c, s)]["lines"]) - nchar(cell[(B_VER, c, s)]["lines"]))
+                     < arg.maxdiff * max(nchar(cell[(A_VER, c, s)]["lines"]), nchar(cell[(B_VER, c, s)]["lines"]))]
         rnd.shuffle(cands)
+        cands.sort(key=lambda cs: cs[0] in used)          # 没出过的卡排前面（稳定排序，组内仍随机）
         seen = set()
         for c, s in cands:
             if c in seen or len(seen) >= n:
@@ -56,6 +75,7 @@ def main():
             items.append({"id": qid, "card": sections(exams[ex][c]),
                           "a": left["lines"].strip().splitlines(), "b": right["lines"].strip().splitlines()})
             key.append({"id": qid, "exam": ex, "card": c, "seed": s,
+                        "len": {A_VER: nchar(x["lines"]), B_VER: nchar(y["lines"])},
                         "A": B_VER if flip else A_VER, "B": A_VER if flip else B_VER,
                         "judge_budong": {B_VER if flip else A_VER: "语句不通" in left["problems"],
                                          A_VER if flip else B_VER: "语句不通" in right["problems"]}})
@@ -67,10 +87,12 @@ def main():
         it["id"] = k["id"] = f"q{i:02d}"
     (out / "key.json").write_text(json.dumps(key, ensure_ascii=False, indent=1), encoding="utf-8")
     data = json.dumps(items, ensure_ascii=False).replace("</", "<\\/")
-    page = TEMPLATE.replace("/*ITEMS*/", data)
+    page = TEMPLATE.replace("/*ITEMS*/", data).replace("smooth-check-1", "smooth-check-" + out.name)
     (out / "哪条更顺.html").write_text(page, encoding="utf-8")
     a_left = sum(k["A"] == A_VER for k in key)
-    print(f"{len(items)} 对 → {out / '哪条更顺.html'}；{A_VER} 在左边 {a_left} 次")
+    print(f"{len(items)} 对 → {out / '哪条更顺.html'}；{A_VER} 在左边 {a_left} 次；"
+          f"重复用到旧卡 {sum(k['card'] in used for k in key)} 对；"
+          f"平均字数 {A_VER} {sum(k['len'][A_VER] for k in key) / len(key):.1f} / {B_VER} {sum(k['len'][B_VER] for k in key) / len(key):.1f}")
 
 
 TEMPLATE = r"""<!doctype html>

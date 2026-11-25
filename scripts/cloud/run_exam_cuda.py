@@ -69,7 +69,8 @@ def main():
     ap.add_argument("model")
     ap.add_argument("out")
     ap.add_argument("--exam", default=str(HERE.parent.parent / "exam" / "考卷.jsonl"))
-    ap.add_argument("--tier", help="只考这一档（公开卷 meta.tier：简单 / 中等 / 困难）")
+    ap.add_argument("--adapter", help="LoRA 目录，可逗号分隔叠几段；不落盘，在显存里合并")
+    ap.add_argument("--tier",help="只考这一档（公开卷 meta.tier：简单 / 中等 / 困难）")
     ap.add_argument("--ids", help="只考这几张，逗号分隔")
     ap.add_argument("--seeds", default="0,1,2")
     ap.add_argument("--temp", type=float, default=0.3)
@@ -90,7 +91,12 @@ def main():
 
     t0 = time.time()
     tok = AutoTokenizer.from_pretrained(a.model)
-    model = AutoModelForCausalLM.from_pretrained(a.model, dtype=torch.bfloat16, device_map="cuda").eval()
+    model = AutoModelForCausalLM.from_pretrained(a.model, dtype=torch.bfloat16, device_map="cuda")
+    for ad in (a.adapter or "").split(","):  # 可以叠几段 LoRA（逗号分隔，按顺序合并进显存里的模型，不落盘）
+        if ad:
+            from peft import PeftModel
+            model = PeftModel.from_pretrained(model, ad).merge_and_unload()
+    model = model.eval()
     load_s = time.time() - t0
     eos = [tok.convert_tokens_to_ids("<|im_end|>"), tok.eos_token_id]
     eos = sorted({i for i in eos if i is not None})

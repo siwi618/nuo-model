@@ -41,8 +41,14 @@ def encode(tok, msgs, max_len):
 
 
 def loss_of(model, ids, labels, dev):
-    out = model(input_ids=ids[None].to(dev), labels=labels[None].to(dev))
-    return out.loss
+    """只在台词位置算输出概率（2026-11-25，为 9B 省显存）：词表 24.8 万，全长 2560 的 logits 连梯度要 5 GB 左右。
+    第 p 个位置预测第 p+1 个 token，所以取「第一个台词 token 的前一位」到倒数第二位；
+    结果和原来 model(labels=...) 的平均交叉熵在数学上一样（同样升到 float32 再算）。"""
+    ids, labels = ids.to(dev), labels.to(dev)
+    start = int((labels != -100).nonzero()[0])
+    pos = torch.arange(start - 1, len(ids) - 1, device=dev)
+    logits = model(input_ids=ids[None], logits_to_keep=pos).logits[0].float()
+    return torch.nn.functional.cross_entropy(logits, labels[start:], ignore_index=-100)
 
 
 @torch.no_grad()
@@ -71,6 +77,7 @@ def main():
     ap.add_argument("--eval-every", type=int, default=100)
     ap.add_argument("--val-n", type=int, default=45)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--no-merge", action="store_true", help="训完不合并（9B 合并后 18 GB，云盘放不下；考试直接挂 LoRA）")
     a = ap.parse_args()
 
     torch.manual_seed(a.seed)
@@ -150,6 +157,8 @@ def main():
     (out / "best").unlink(missing_ok=True) if (out / "best").is_symlink() else None
     if not (out / "best").exists():
         (out / "best").symlink_to(best_dir.name)
+    if a.no_merge:
+        return
     base = AutoModelForCausalLM.from_pretrained(a.model, dtype=torch.bfloat16)
     merged = PeftModel.from_pretrained(base, best_dir).merge_and_unload()
     merged.save_pretrained(out / "merged", safe_serialization=True)

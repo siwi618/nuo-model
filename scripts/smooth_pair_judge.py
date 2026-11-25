@@ -32,7 +32,7 @@ SYS = """你是戏剧台词的读者。下面是一张「戏卡」和两位演�
 只输出 JSON：{"更顺": "甲" / "乙" / "差不多", "理由": "一两句话"}"""
 
 
-def pairs():
+def pairs(tests=None):
     cards = {}
     for fn in ["考卷.jsonl", "专项-心里话.jsonl"]:
         for t in (ROOT / "exam" / fn).read_text(encoding="utf-8").splitlines():
@@ -41,7 +41,7 @@ def pairs():
                 cards[(fn, r["id"])] = r["card"]
     cell = load_lines()
     out = []
-    for t in TESTS:
+    for t in tests or TESTS:
         key, prefs, notes = load_test(t)
         for k, p in zip(key, prefs):
             fn = "考卷.jsonl" if k["exam"] == "pub" else "专项-心里话.jsonl"

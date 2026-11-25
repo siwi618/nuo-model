@@ -14,6 +14,7 @@ item 另外在 v5 逐句核对的 40 条上和 Ken 的标注比。
   .venv/bin/python scripts/read_judge.py pair data/human-check/对尺子/read-pair.jsonl
   .venv/bin/python scripts/read_judge.py item data/human-check/对尺子/read-item.jsonl
   加 --score 只算分。
+  留出验证（新盲测）：... pair OUT.jsonl --tests smooth-temp03
 """
 import argparse
 import hashlib
@@ -239,6 +240,7 @@ def main():
     ap.add_argument("--exam", default=str(ROOT / "exam" / "考卷.jsonl"))
     ap.add_argument("--score", action="store_true")
     ap.add_argument("--workers", type=int, default=8)
+    ap.add_argument("--tests", nargs="*", help="pair / item：只用这几个盲测（data/human-check/ 下的目录名），默认是对尺子用的 4 个")
     a = ap.parse_args()
     if a.mode == "vs":
         P, same = vs_pairs(a.a, a.b, a.exam)
@@ -246,7 +248,7 @@ def main():
             run("pair", Path(a.out), P, a.workers)
         vs_score(Path(a.out), P, same, Path(a.a).name, Path(a.b).name)
         return
-    P = pairs()
+    P = pairs(a.tests)
     if not a.score:
         run(a.mode, Path(a.out), P, a.workers)
     score(a.mode, Path(a.out), P)

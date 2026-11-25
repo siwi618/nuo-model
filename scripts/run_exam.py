@@ -2,7 +2,7 @@
 
 用法（在仓库根目录跑）：
   .venv/bin/python scripts/run_exam.py 模型 输出前缀 [--adapter 适配器目录] [--exam exam/考卷.jsonl]
-      [--seeds 0,1,2] [--temp 0.7 --top-p 0.9 --rep-penalty 1.15] [--ids exam-S01,...]
+      [--seeds 0,1,2] [--temp 0.7 --top-p 0.9 --top-k 0 --rep-penalty 1.15] [--ids exam-S01,...]
 输出：输出前缀-s0.txt、-s1.txt……（每个种子一份），输出前缀.timing（速度 / 内存汇总）。
 
 默认用「带一点随机 + 重复惩罚」（接进游戏也打算这么用），每张卡、每个种子单独设种子：
@@ -62,6 +62,7 @@ def main():
     ap.add_argument("--seeds", default="0,1,2")
     ap.add_argument("--temp", type=float, default=0.7)
     ap.add_argument("--top-p", type=float, default=0.9)
+    ap.add_argument("--top-k", type=int, default=0, help="0 = 不用（2026-11-25 加，试 Qwen 官方推荐 top_k 20）")
     ap.add_argument("--rep-penalty", type=float, default=1.15)
     ap.add_argument("--rep-context", type=int, default=64)
     ap.add_argument("--rep-mode", choices=["gen", "all"], default="gen",
@@ -74,7 +75,7 @@ def main():
         want = set(a.ids.split(","))
         exam = [e for e in exam if e["id"] in want]
     seeds = [int(s) for s in a.seeds.split(",")] if a.temp > 0 else [0]
-    sampler = make_sampler(temp=a.temp, top_p=a.top_p)
+    sampler = make_sampler(temp=a.temp, top_p=a.top_p, top_k=a.top_k)
     use_pen = bool(a.rep_penalty) and a.rep_penalty != 1.0
 
     t0 = time.time()

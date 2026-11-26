@@ -12,11 +12,16 @@
                                   "reject": "", "fixes": [...], "tries": 1, "seconds": 0.8, "first_token": 0.35}
      lines 为 null = 退回，游戏用手写台词。card 格式同 docs/戏卡格式.md（代码里的 dict，见 exam/考卷.jsonl）。
   出错 → HTTP 400 / 500 + {"error": "..."}
+
+  --watch-pid PID：那个进程（游戏）没了就自己退出。游戏开着时自动拉起服务用（ARPG actor_client.gd），
+  这样从编辑器点停止（会直接杀掉游戏、来不及收尾）也不会留下一个占 2 GB 的服务。
 """
 
 import argparse
 import json
+import os
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -88,6 +93,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("model", nargs="?", default=str(DEFAULT_MODEL))
     ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--watch-pid", type=int, default=0, help="这个进程没了就退出")
     a = ap.parse_args()
 
     def log(msg):
@@ -97,6 +103,18 @@ def main():
     log(f"模型加载 {time.perf_counter() - t:.1f}s：{a.model}")
     srv = HTTPServer(("127.0.0.1", a.port), make_handler(actor, Path(a.model).name, log))
     log(f"在 http://127.0.0.1:{a.port} 等游戏调用（Ctrl+C 退出）")
+    if a.watch_pid:
+        def watch():
+            while True:
+                time.sleep(2)
+                try:
+                    os.kill(a.watch_pid, 0)
+                except ProcessLookupError:
+                    log(f"游戏进程 {a.watch_pid} 没了，退出")
+                    os._exit(0)
+                except PermissionError:
+                    pass
+        threading.Thread(target=watch, daemon=True).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

@@ -62,6 +62,7 @@ def render_card(card):
     out += field("地点时间", sc.get("place_time"))
     out += field("前情", sc.get("backstory"))
     out += field("已发生的事", sc.get("happened"))
+    out += field("提得到的", sc.get("at_hand"))   # 11-26 试：游戏每次现填的素材 / 看得见的东西放这里（「知道」要固定才能缓存档案）；没有就不出这一行
 
     hist = card.get("history") or []
     if hist:

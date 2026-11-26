@@ -17,6 +17,7 @@
 用法：NUO_N=10 .venv/bin/python scripts/batch4.py [plan / cards / lines / all / redo / show]
      NUO_TOTAL 改总条数（默认 150）。结果在 data/batch-4/（不进 git）。
      show：把已写好的渲染成人看的 data/batch-4/看.txt（卡 + 台词 + 类型 + 逐项清单 + 机器标记）。
+     brief 起 止：挑稿用的精简版（不列世界设定、例句、想要怕；列素材、逐项清单、陷阱、用到的素材），打到屏幕。
 """
 
 import json
@@ -207,6 +208,47 @@ def show(samples):
     print(f"写好 {pilot.OUT / '看.txt'}（{len(samples)} 条）")
 
 
+def cut(t, n):
+    t = str(t or "")
+    return t if len(t) <= n else t[:n] + "…"
+
+
+def brief(samples):
+    for s in samples:
+        c, m = s["card"], s["meta"]
+        g, sp, ls, r, sc = c["goal"], c["speaker"], c["listener"], c["rules"], c["scene"]
+        ex = m.get("b4", {})
+        t = m["plan"]["b4_type"]
+        _, used = material_flags(c, s["output"], ex.get("knows_more", []))
+        flags = check(s)
+        print(f"## {s['id']} {t}{TYPE_NAMES[t]} {sp['name']}→{ls['name']}（{cut(ls.get('summary'), 40)}）"
+              f" {'写整段' if r['use'] == 'scene' else '接一句'} 句{r['lines'][0]}-{r['lines'][1]} ≤{r['max_chars']}字"
+              f" 动作{'可' if r['actions'] else '不可'} 开口:{'、'.join(r['speakers'])}"
+              + (" 机器:" + "；".join(flags) if flags else ""))
+        print(f"性格:{cut(sp.get('personality'), 40)}｜说话:{cut(sp.get('speech'), 90)}")
+        if c["world"].get("address"):
+            print(f"称呼:{c['world']['address']}")
+        if sp.get("secrets"):
+            print("不能说:" + "；".join(cut(x, 50) for x in sp["secrets"]))
+        if sp.get("now"):
+            print(f"他眼下:{sp['now']}")
+        print(f"对方看法:{cut(ls.get('view'), 50)}" + (f"｜对方眼下:{ls['now']}" if ls.get("now") else "")
+              + (f"｜在场:{[o.get('name') + '（' + cut(o.get('view'), 20) + '）' for o in ls.get('others', [])]}" if ls.get("others") else ""))
+        print(f"场景:{sc.get('place_time', '')}｜前情:{sc.get('backstory', '')}"
+              + (f"｜已发生:{'；'.join(map(str, sc['happened']))}" if sc.get("happened") else ""))
+        print("素材:" + "／".join(ex.get("knows_more", [])))
+        for h in c.get("history", []):
+            print(f"前 {h['name']}: {h['text']}")
+        print(f"办:{g.get('must', '')}")
+        print(f"心:{g.get('inner', '')}")
+        if g.get("dont_leak"):
+            print("漏:" + "；".join(cut(x, 40) for x in g["dont_leak"]))
+        print("清单(参考):" + "；".join(ex.get("must_items", [])) + (f"｜陷阱:{ex['trap']}" if ex.get("trap") else ""))
+        for o in s["output"]:
+            print(f"▶{o['name']}{'[' + o['emotion'] + ']' if o.get('emotion') else ''}: {o['text']}")
+        print(f"（用到素材 {len(used)} 条" + (": " + "／".join(used) if used else "") + "）\n")
+
+
 def main():
     step = sys.argv[1] if len(sys.argv) > 1 else "all"
     if step == "redo":
@@ -220,6 +262,16 @@ def main():
               f"按世界 {dict(Counter(it['world'] for it in plan).most_common())}；"
               f"整段 {sum(it['use'] == 'scene' for it in plan)}；人数 {len({it['speaker'] for it in plan})}")
         print("前 10 条：", [(it["id"], it["b4_type"], it["speaker"], it["use"]) for it in plan[:10]])
+        return
+    if step == "brief":                            # brief 起 止 ／ brief unpicked（只列还没挑、机器检查过了的）
+        allss = pilot.load("samples.json") or []
+        if sys.argv[2:3] == ["unpicked"]:
+            todo = [s for s in allss if s["meta"].get("keep") is None and not check(s)]
+            lo, hi = (int(x) for x in (sys.argv[3:5] or [0, len(todo)]))
+            brief(todo[lo:hi])
+        else:
+            lo, hi = (int(x) for x in sys.argv[2:4])
+            brief(allss[lo:hi])
         return
     plan = plan[:LIMIT]
     if step == "show":

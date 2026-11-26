@@ -13,7 +13,7 @@
      lines 为 null = 退回，游戏用手写台词。card 格式同 docs/戏卡格式.md（代码里的 dict，见 exam/考卷.jsonl）。
   出错 → HTTP 400 / 500 + {"error": "..."}
 
-  --watch-pid PID：那个进程（游戏）没了就自己退出。游戏开着时自动拉起服务用（ARPG actor_client.gd），
+  --watch-pid PID：那个进程（游戏）没了就自己退出。游戏开着时自动拉起服务用（Godot 那边的客户端），
   这样从编辑器点停止（会直接杀掉游戏、来不及收尾）也不会留下一个占 2 GB 的服务。
 """
 

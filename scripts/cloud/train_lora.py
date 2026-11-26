@@ -63,6 +63,13 @@ def evaluate(model, val, dev):
     return tot / max(n, 1)
 
 
+def stack(base, loras):
+    """依次把逗号分隔的 LoRA 合并进去（每层都是在前一层合并后的模型上训的；同 train_dpo.stack）。"""
+    for path in loras.split(","):
+        base = PeftModel.from_pretrained(base, path).merge_and_unload()
+    return base
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--model", required=True)
@@ -77,6 +84,7 @@ def main():
     ap.add_argument("--eval-every", type=int, default=100)
     ap.add_argument("--val-n", type=int, default=45)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--init-lora", default="", help="先依次合并这些 LoRA（逗号分隔）再加新 LoRA（11-26 第 4 批：在 v3 + dpoa-s1 + dpo2-s1 上接着训）")
     ap.add_argument("--no-merge", action="store_true", help="训完不合并（9B 合并后 18 GB，云盘放不下；考试直接挂 LoRA）")
     a = ap.parse_args()
 
@@ -86,7 +94,10 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     dev = "cuda"
     tok = AutoTokenizer.from_pretrained(a.model)
-    model = AutoModelForCausalLM.from_pretrained(a.model, dtype=torch.bfloat16).to(dev)
+    model = AutoModelForCausalLM.from_pretrained(a.model, dtype=torch.bfloat16)
+    if a.init_lora:
+        model = stack(model, a.init_lora)
+    model = model.to(dev)
     model.gradient_checkpointing_enable()
     model.enable_input_require_grads()
     model.config.use_cache = False
@@ -160,6 +171,8 @@ def main():
     if a.no_merge:
         return
     base = AutoModelForCausalLM.from_pretrained(a.model, dtype=torch.bfloat16)
+    if a.init_lora:
+        base = stack(base, a.init_lora)
     merged = PeftModel.from_pretrained(base, best_dir).merge_and_unload()
     merged.save_pretrained(out / "merged", safe_serialization=True)
     tok.save_pretrained(out / "merged")
